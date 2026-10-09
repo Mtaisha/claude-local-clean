@@ -23,6 +23,9 @@ DEVICE_LINK_KEYS = [
     'claudeCodeFirstTokenDate',
 ]
 
+STRUCTURED_NOTICE_ENV = 'CLAUDE_LOCAL_CLEAN_STRUCTURED_NOTICES'
+STRUCTURED_NOTICE_PREFIX = '@@CLAUDE_LOCAL_CLEAN_NOTICE@@'
+
 
 class CleanupSafetyError(RuntimeError):
     """Raised when an allowlisted cleanup target is redirected through a link."""
@@ -67,6 +70,15 @@ def get_claude_json():
 
 def get_claude_dir():
     return get_home() / ".claude"
+
+
+def emit_structured_notice(notice):
+    """Emit a server-only result marker without cluttering direct CLI runs."""
+    if os.environ.get(STRUCTURED_NOTICE_ENV) == '1':
+        print(
+            STRUCTURED_NOTICE_PREFIX
+            + json.dumps(notice, ensure_ascii=False, separators=(',', ':'))
+        )
 
 
 def _is_reparse(path):
@@ -229,6 +241,7 @@ def clean_local_desktop_privacy():
     try:
         from local_desktop_privacy import (
             DesktopPrivacyError,
+            SUPPORTED_EMBEDDED_VERSION,
             clean_desktop_privacy_residue,
             harden_current_embedded_claude_code,
         )
@@ -237,6 +250,7 @@ def clean_local_desktop_privacy():
         return {"status": "partial", "reason": "Desktop cleanup module is missing"}
 
     incomplete = False
+    notices = []
     try:
         residue = clean_desktop_privacy_residue()
         if residue.get("status") == "blocked":
@@ -260,17 +274,37 @@ def clean_local_desktop_privacy():
             incomplete = True
             print("⚠ Claude 正在运行，未修改内置 Claude Code")
         elif status == "unsupported":
-            incomplete = True
-            print(
-                f"⚠ 内置 Claude Code {embedded.get('version', '未知版本')} 未在支持清单中；"
-                "为避免误改已跳过，需先重新审查新版内容"
-            )
+            version = str(embedded.get('version', '未知版本'))
+            if embedded.get("newer_than_supported") is True:
+                notices.append(
+                    {
+                        "code": "embedded-cc-newer",
+                        "version": version,
+                        "supported_version": str(
+                            embedded.get("supported_version", SUPPORTED_EMBEDDED_VERSION)
+                        ),
+                    }
+                )
+                print(
+                    f"⚠ 内置 Claude Code {version} 高于当前已复核版本 "
+                    f"{embedded.get('supported_version', SUPPORTED_EMBEDDED_VERSION)}；"
+                    "常规清理已继续，深度二进制处理已跳过，建议自行扫描新版文件后再深度清理"
+                )
+            else:
+                incomplete = True
+                print(
+                    f"⚠ 内置 Claude Code {version} 未在支持清单中；"
+                    "为避免误改已跳过，需先重新审查该版本内容"
+                )
         else:
             print("  未发现可处理的 Desktop 内置 Claude Code")
     except DesktopPrivacyError as exc:
         incomplete = True
         print(f"⚠ Desktop 本机清理未通过内容校验，已停止该步骤: {exc}")
-    return {"status": "partial" if incomplete else "success"}
+    return {
+        "status": "partial" if incomplete else "success",
+        "notices": notices,
+    }
 
 
 def apply_local_desktop_privacy_hardening():
@@ -443,6 +477,9 @@ def main() -> int:
         print(f'\n[{next_step}/{total_steps}] 清除本机 Desktop 残留并核验内置 CC...')
         desktop_result = clean_local_desktop_privacy()
         incomplete = desktop_result.get("status") == "partial"
+        for notice in desktop_result.get("notices", []):
+            if isinstance(notice, dict):
+                emit_structured_notice(notice)
         next_step += 1
 
     print(f'\n[{next_step}/{total_steps}] 清除 Claude Desktop 本地代理审计记录...')

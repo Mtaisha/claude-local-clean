@@ -47,6 +47,8 @@ API_VERSION = 1
 INSTANCE_ID = secrets.token_urlsafe(18)
 CSRF_TOKEN = secrets.token_urlsafe(32)
 MACHINE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+STRUCTURED_NOTICE_ENV = "CLAUDE_LOCAL_CLEAN_STRUCTURED_NOTICES"
+STRUCTURED_NOTICE_PREFIX = "@@CLAUDE_LOCAL_CLEAN_NOTICE@@"
 
 CLEANUP_MODES = {
     "device-links": {
@@ -121,12 +123,40 @@ def parse_steps(output: str) -> list[dict[str, str]]:
     return steps
 
 
+def parse_cleanup_output(output: str) -> tuple[str, list[dict[str, str]]]:
+    """Separate validated structured notices from human-readable CLI output."""
+    visible_lines: list[str] = []
+    notices: list[dict[str, str]] = []
+    for raw in output.splitlines(keepends=True):
+        marker = raw.strip()
+        if not marker.startswith(STRUCTURED_NOTICE_PREFIX):
+            visible_lines.append(raw)
+            continue
+        try:
+            value = json.loads(marker[len(STRUCTURED_NOTICE_PREFIX):])
+        except json.JSONDecodeError:
+            visible_lines.append(raw)
+            continue
+        if not isinstance(value, dict) or not isinstance(value.get("code"), str):
+            visible_lines.append(raw)
+            continue
+        notice = {
+            key: item
+            for key, item in value.items()
+            if key in {"code", "version", "supported_version"} and isinstance(item, str)
+        }
+        notices.append(notice)
+    return "".join(visible_lines), notices
+
+
 def run_cleanup(mode: str) -> dict[str, object]:
     if mode not in CLEANUP_MODES:
         raise ValueError("未知清理模式")
 
     start = time.monotonic()
     command = [sys.executable, str(SCRIPT_PATH), *CLEANUP_MODES[mode]["args"]]
+    child_env = os.environ.copy()
+    child_env[STRUCTURED_NOTICE_ENV] = "1"
     try:
         result = subprocess.run(
             command,
@@ -135,6 +165,7 @@ def run_cleanup(mode: str) -> dict[str, object]:
             encoding="utf-8",
             errors="replace",
             timeout=180,
+            env=child_env,
             creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
         )
     except subprocess.TimeoutExpired:
@@ -155,11 +186,13 @@ def run_cleanup(mode: str) -> dict[str, object]:
         }
 
     status = cleanup_status_from_exit_code(result.returncode)
+    visible_output, notices = parse_cleanup_output(result.stdout)
     return {
         "status": status,
         "duration_ms": int((time.monotonic() - start) * 1000),
-        "steps": parse_steps(result.stdout),
-        "output": result.stdout,
+        "steps": parse_steps(visible_output),
+        "output": visible_output,
+        "notices": notices,
         "error": result.stderr.strip() or (
             "清理只完成了一部分，请查看输出并在处理阻塞项后重试。"
             if status == "partial"
@@ -456,13 +489,16 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not claim_mutation_slot():
             self._send_json({"success": False, "error": "已有修改任务正在运行"}, 409)
             return
+        cleanup_failed = False
         try:
             result = run_cleanup(str(mode))
         except Exception:
-            self._send_json({"success": False, "error": "本机清理进程异常终止"}, 500)
-            return
+            cleanup_failed = True
         finally:
             release_mutation_slot()
+        if cleanup_failed:
+            self._send_json({"success": False, "error": "本机清理进程异常终止"}, 500)
+            return
         self._send_json({"success": result["status"] == "success", "result": result})
 
     def _post_account_retire(self) -> None:

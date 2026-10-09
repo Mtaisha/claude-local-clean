@@ -2687,10 +2687,21 @@
       }
 
       function confirmAction(options) {
-        const { title, message = '', detail = '', confirmLabel = '确认', tone = 'neutral' } = options;
+        const {
+          title,
+          message = '',
+          detail = '',
+          confirmLabel = '确认',
+          tone = 'neutral',
+          noticeOnly = false
+        } = options;
         const dialog = $('#confirmDialog');
         if (!dialog || typeof dialog.showModal !== 'function') {
           const lines = [title, detail, message].filter(Boolean);
+          if (noticeOnly) {
+            window.alert(lines.join('\n\n'));
+            return Promise.resolve(true);
+          }
           return Promise.resolve(window.confirm(lines.join('\n\n')));
         }
         if (dialog.open || confirmResolver) {
@@ -2704,13 +2715,16 @@
         const accept = $('#confirmAccept');
         accept.textContent = confirmLabel;
         accept.className = `button ${tone === 'danger' ? 'button-danger' : 'button-primary'}`;
+        const cancel = $('#confirmCancel');
+        cancel.hidden = noticeOnly;
         dialog.dataset.tone = tone;
+        dialog.dataset.noticeOnly = String(noticeOnly);
         dialog.returnValue = '';
         return new Promise((resolve) => {
           confirmResolver = resolve;
           confirmOpenedAt = performance.now();
           dialog.showModal();
-          $('#confirmCancel').focus();
+          (noticeOnly ? accept : cancel).focus();
         });
       }
 
@@ -3088,6 +3102,13 @@
         return friendlyError || error.message || options.summary || '账号操作已部分完成。';
       }
 
+      function findCleanupNotice(result, code) {
+        if (!isObject(result) || !Array.isArray(result.notices)) {
+          return null;
+        }
+        return result.notices.find((notice) => isObject(notice) && notice.code === code) || null;
+      }
+
       async function runCleanup() {
         if (isMutationBusy()) {
           return;
@@ -3100,6 +3121,7 @@
         applyConfigToModes();
         setSectionStatus($('#cleanupRunState'), '正在执行', 'warning');
         const button = $('#runCleanupButton');
+        let newerEmbeddedNotice = null;
         setButtonBusy(button, true, '执行中…');
         setResultEmpty($('#cleanupResult'), '执行结果', '正在等待本地清理接口返回步骤和输出。');
         try {
@@ -3113,9 +3135,14 @@
           });
           const result = unwrapPayload(payload);
           const status = resultStatus(result, 'success');
+          newerEmbeddedNotice = findCleanupNotice(result, 'embedded-cc-newer');
           renderResult($('#cleanupResult'), result, {
             title: '执行结果',
-            summary: status === 'partial' ? '清理已部分完成，请查看步骤与错误信息。' : '已收到清理接口返回结果。'
+            summary: status === 'partial'
+              ? '清理已部分完成，请查看步骤与错误信息。'
+              : newerEmbeddedNotice
+                ? '常规清理已完成；新版内置 Claude Code 的深度处理已安全跳过。'
+                : '已收到清理接口返回结果。'
           });
           setSectionStatus($('#cleanupRunState'), STATUS_LABELS[status] || '已返回', resultTone(status));
           setToast('清理接口已返回结果。', resultTone(status));
@@ -3130,6 +3157,17 @@
           state.cleanupBusy = false;
           setButtonBusy(button, false, '执行清理');
           applyConfigToModes();
+        }
+        if (newerEmbeddedNotice) {
+          const currentVersion = displayValue(newerEmbeddedNotice.version) || '未知版本';
+          const reviewedVersion = displayValue(newerEmbeddedNotice.supported_version) || '当前支持版本';
+          await confirmAction({
+            title: '检测到较新的内置 Claude Code',
+            detail: `当前 ${currentVersion} · 已复核至 ${reviewedVersion}`,
+            message: '常规清理已经完成。新版二进制的深度处理已安全跳过，建议自行扫描新版文件后再进行深度清理。',
+            confirmLabel: '知道了',
+            noticeOnly: true
+          });
         }
       }
 
@@ -3626,7 +3664,8 @@
         $('#confirmForm').addEventListener('submit', (event) => {
           event.preventDefault();
           const confirmed = Boolean(event.submitter && event.submitter.value === 'confirm');
-          if (confirmed && performance.now() - confirmOpenedAt < CONFIRM_ARM_DELAY_MS) {
+          const noticeOnly = dialog.dataset.noticeOnly === 'true';
+          if (confirmed && !noticeOnly && performance.now() - confirmOpenedAt < CONFIRM_ARM_DELAY_MS) {
             $('#confirmCancel').focus();
             return;
           }

@@ -470,7 +470,15 @@ def harden_current_embedded_claude_code(
         raise DesktopPrivacyError("LOCALAPPDATA is absent")
     _require_no_reparse_chain(path, local_appdata)
     if version != SUPPORTED_EMBEDDED_VERSION:
-        return {"status": "unsupported", "version": version, "reason": "content review required"}
+        return {
+            "status": "unsupported",
+            "version": version,
+            "supported_version": SUPPORTED_EMBEDDED_VERSION,
+            "newer_than_supported": (
+                _version_key(version) > _version_key(SUPPORTED_EMBEDDED_VERSION)
+            ),
+            "reason": "content review required",
+        }
 
     original = path.read_bytes()
     digest = _sha256(original)

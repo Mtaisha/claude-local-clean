@@ -126,6 +126,59 @@ class SafeFullCleanupTests(unittest.TestCase):
         self.assertIn("部分完成", output.getvalue())
         self.assertNotIn("✓ 一键完整清理完成", output.getvalue())
 
+    def test_newer_desktop_code_is_a_notice_not_a_cleanup_failure(self) -> None:
+        with patch.object(clean.platform, "system", return_value="Windows"), patch(
+            "local_desktop_privacy.clean_desktop_privacy_residue",
+            return_value={"status": "current", "removed_count": 0, "removed_bytes": 0},
+        ), patch(
+            "local_desktop_privacy.harden_current_embedded_claude_code",
+            return_value={
+                "status": "unsupported",
+                "version": "2.1.999",
+                "supported_version": "2.1.281",
+                "newer_than_supported": True,
+            },
+        ), redirect_stdout(StringIO()) as output:
+            result = clean.clean_local_desktop_privacy()
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            result["notices"],
+            [
+                {
+                    "code": "embedded-cc-newer",
+                    "version": "2.1.999",
+                    "supported_version": "2.1.281",
+                }
+            ],
+        )
+        self.assertIn("常规清理已继续", output.getvalue())
+
+    def test_full_cleanup_emits_newer_version_notice_for_console_server(self) -> None:
+        notice = {
+            "code": "embedded-cc-newer",
+            "version": "2.1.999",
+            "supported_version": "2.1.281",
+        }
+        with patch.object(clean.platform, "system", return_value="Windows"), patch.object(
+            clean.sys, "argv", ["clean_claude_tracking.py"]
+        ), patch.object(clean, "clean_tracking_ids"), patch.object(
+            clean, "clean_telemetry"
+        ), patch.object(
+            clean,
+            "clean_local_desktop_privacy",
+            return_value={"status": "success", "notices": [notice]},
+        ), patch.object(clean, "clean_desktop_audit_logs"), patch.object(
+            clean, "clean_safe_cache"
+        ), patch.dict(
+            os.environ, {clean.STRUCTURED_NOTICE_ENV: "1"}, clear=False
+        ), redirect_stdout(StringIO()) as output:
+            exit_code = clean.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(clean.STRUCTURED_NOTICE_PREFIX, output.getvalue())
+        self.assertIn('"code":"embedded-cc-newer"', output.getvalue())
+
     def test_privacy_hardening_overrides_only_managed_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)

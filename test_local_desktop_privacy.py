@@ -160,6 +160,23 @@ class LocalDesktopPrivacyTests(unittest.TestCase):
         self.assertIn("hash", result["reason"])
         smoke.assert_not_called()
 
+    def test_newer_embedded_version_requests_review_without_reading_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            local_appdata = Path(temp)
+            binary = local_appdata / "Packages" / "Claude_test" / "claude.exe"
+            with patch.object(
+                privacy,
+                "latest_embedded_binary",
+                return_value=("2.1.999", binary),
+            ):
+                result = privacy.harden_current_embedded_claude_code(
+                    local_appdata=local_appdata
+                )
+
+        self.assertEqual(result["status"], "unsupported")
+        self.assertEqual(result["supported_version"], privacy.SUPPORTED_EMBEDDED_VERSION)
+        self.assertIs(result["newer_than_supported"], True)
+
     def test_known_clean_hash_requires_successful_smoke(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "claude.exe"

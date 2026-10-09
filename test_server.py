@@ -28,6 +28,31 @@ class MachineIdTests(unittest.TestCase):
         self.assertEqual(server.cleanup_status_from_exit_code(2), "partial")
         self.assertEqual(server.cleanup_status_from_exit_code(1), "failed")
 
+    def test_structured_cleanup_notice_is_removed_from_visible_output(self) -> None:
+        marker = server.STRUCTURED_NOTICE_PREFIX + json.dumps(
+            {
+                "code": "embedded-cc-newer",
+                "version": "2.1.999",
+                "supported_version": "2.1.281",
+                "ignored": {"not": "a string"},
+            }
+        )
+        visible, notices = server.parse_cleanup_output(
+            f"✓ 常规清理完成\n{marker}\n⚠ 深度处理已跳过\n"
+        )
+
+        self.assertEqual(visible, "✓ 常规清理完成\n⚠ 深度处理已跳过\n")
+        self.assertEqual(
+            notices,
+            [
+                {
+                    "code": "embedded-cc-newer",
+                    "version": "2.1.999",
+                    "supported_version": "2.1.281",
+                }
+            ],
+        )
+
 
 class ApiTests(unittest.TestCase):
     @classmethod
