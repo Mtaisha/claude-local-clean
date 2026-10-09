@@ -34,6 +34,8 @@ class MachineIdTests(unittest.TestCase):
                 "code": "embedded-cc-newer",
                 "version": "2.1.999",
                 "supported_version": "2.1.281",
+                "stage": "Desktop 残留",
+                "reason": "仍有残留",
                 "ignored": {"not": "a string"},
             }
         )
@@ -49,6 +51,8 @@ class MachineIdTests(unittest.TestCase):
                     "code": "embedded-cc-newer",
                     "version": "2.1.999",
                     "supported_version": "2.1.281",
+                    "stage": "Desktop 残留",
+                    "reason": "仍有残留",
                 }
             ],
         )

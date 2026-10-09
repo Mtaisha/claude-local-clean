@@ -7,7 +7,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import clean_claude_tracking as clean
 
@@ -170,6 +170,14 @@ class SafeFullCleanupTests(unittest.TestCase):
             return_value={"status": "success", "notices": [notice]},
         ), patch.object(clean, "clean_desktop_audit_logs"), patch.object(
             clean, "clean_safe_cache"
+        ), patch.object(
+            clean, "verify_tracking_ids_clean", return_value=[]
+        ), patch.object(
+            clean, "verify_telemetry_clean", return_value=[]
+        ), patch.object(
+            clean, "verify_desktop_audit_clean", return_value=[]
+        ), patch.object(
+            clean, "verify_safe_cache_clean", return_value=[]
         ), patch.dict(
             os.environ, {clean.STRUCTURED_NOTICE_ENV: "1"}, clear=False
         ), redirect_stdout(StringIO()) as output:
@@ -178,6 +186,42 @@ class SafeFullCleanupTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn(clean.STRUCTURED_NOTICE_PREFIX, output.getvalue())
         self.assertIn('"code":"embedded-cc-newer"', output.getvalue())
+
+    def test_self_check_repairs_one_residual_and_rechecks(self) -> None:
+        action = Mock()
+        verifier = Mock(side_effect=[["遥测缓存仍存在: statsig"], []])
+
+        with redirect_stdout(StringIO()) as output:
+            result = clean.run_self_healing_stage("遥测缓存", action, verifier)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(action.call_count, 2)
+        self.assertEqual(verifier.call_count, 2)
+        self.assertIn("自动修复成功", output.getvalue())
+
+    def test_self_check_reports_bounded_failure_after_one_retry(self) -> None:
+        action = Mock()
+        verifier = Mock(return_value=["遥测缓存仍存在: statsig"])
+
+        with patch.dict(
+            os.environ, {clean.STRUCTURED_NOTICE_ENV: "1"}, clear=False
+        ), redirect_stdout(StringIO()) as output:
+            result = clean.run_self_healing_stage("遥测缓存", action, verifier)
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(action.call_count, 2)
+        self.assertIn("自动修复失败", output.getvalue())
+        self.assertIn('"code":"cleanup-auto-repair-failed"', output.getvalue())
+
+    def test_self_check_does_not_retry_a_safety_refusal(self) -> None:
+        action = Mock(side_effect=clean.CleanupSafetyError("路径被重定向"))
+
+        with redirect_stdout(StringIO()) as output:
+            result = clean.run_self_healing_stage("设备关联字段", action)
+
+        self.assertEqual(result["status"], "partial")
+        action.assert_called_once_with()
+        self.assertIn("无法安全自动修复", output.getvalue())
 
     def test_privacy_hardening_overrides_only_managed_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

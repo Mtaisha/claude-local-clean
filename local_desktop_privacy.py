@@ -195,6 +195,16 @@ def clean_desktop_privacy_residue(
                 removed.append(str(candidate))
                 removed_bytes += size
 
+    remaining = [
+        str(candidate)
+        for candidate, _base in candidates
+        if candidate.exists() or candidate.is_symlink()
+    ]
+    if remaining:
+        raise DesktopPrivacyError(
+            "Desktop residue remained after cleanup: " + ", ".join(remaining)
+        )
+
     return {
         "status": "updated" if removed else "current",
         "removed": removed,
@@ -265,6 +275,17 @@ def apply_desktop_managed_privacy(
             changed.append(key)
     if changed:
         _write_json_atomic(config_path, config)
+        try:
+            written = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DesktopPrivacyError(
+                f"Applied managed config verification failed: {exc}"
+            ) from exc
+        if not isinstance(written, dict) or any(
+            written.get(key) is not value
+            for key, value in MANAGED_PRIVACY_VALUES.items()
+        ):
+            raise DesktopPrivacyError("Applied managed config verification failed")
     return {"status": "updated" if changed else "current", "changed": changed}
 
 

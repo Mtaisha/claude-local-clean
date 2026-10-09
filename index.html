@@ -2234,7 +2234,7 @@
                 </span>
                 <span class="mode-copy">
                   <span class="mode-title">设备关联</span>
-                  <span class="mode-desc">删除 <code>~/.claude.json</code> 中 Claude 自有的设备关联字段，以及 telemetry、statsig 遥测缓存。</span>
+                  <span class="mode-desc">删除 <code>~/.claude.json</code> 中 Claude 自有的设备关联字段及遥测缓存，并自动复查、修复残留。</span>
                   <span class="mode-keep">保留登录、项目对话与文件历史</span>
                   <span class="mode-unavailable">当前配置未提供此模式</span>
                 </span>
@@ -2250,7 +2250,7 @@
                 </span>
                 <span class="mode-copy">
                   <span class="mode-title">设备关联 + 审计</span>
-                  <span class="mode-desc">在设备关联清理之外，再删除 Claude Desktop 本地代理的 <code>audit.jsonl</code> 审计记录。</span>
+                  <span class="mode-desc">在设备关联清理之外，再删除并复查 Claude Desktop 本地代理的 <code>audit.jsonl</code> 审计记录。</span>
                   <span class="mode-keep">保留项目对话与文件回退数据</span>
                   <span class="mode-unavailable">当前配置未提供此模式</span>
                 </span>
@@ -2266,7 +2266,7 @@
                 </span>
                 <span class="mode-copy">
                   <span class="mode-title">完整清理</span>
-                  <span class="mode-desc">包含以上全部，再清理可重建缓存和清单内的 Desktop 残留；内置 Claude Code 只在哈希校验通过时原位处理。</span>
+                  <span class="mode-desc">包含以上全部，再清理可重建缓存和 Desktop 残留；各步骤自动复查并定向修复一次。</span>
                   <span class="mode-keep">保留登录、账号资料、sessions 与工作资产</span>
                   <span class="mode-unavailable">当前配置未提供此模式</span>
                 </span>
@@ -2282,7 +2282,7 @@
                 </span>
                 <span class="mode-copy">
                   <span class="mode-title">隐私加固</span>
-                  <span class="mode-desc">写入关闭非必要遥测、错误上报、反馈命令与自动更新的本机配置。</span>
+                  <span class="mode-desc">写入关闭非必要遥测、错误上报、反馈命令与自动更新的配置，并回读验证。</span>
                   <span class="mode-keep">不删除数据，已有主题、插件与 hooks 不变</span>
                   <span class="mode-unavailable">当前配置未提供此模式</span>
                 </span>
@@ -3109,6 +3109,13 @@
         return result.notices.find((notice) => isObject(notice) && notice.code === code) || null;
       }
 
+      function filterCleanupNotices(result, code) {
+        if (!isObject(result) || !Array.isArray(result.notices)) {
+          return [];
+        }
+        return result.notices.filter((notice) => isObject(notice) && notice.code === code);
+      }
+
       async function runCleanup() {
         if (isMutationBusy()) {
           return;
@@ -3122,6 +3129,7 @@
         setSectionStatus($('#cleanupRunState'), '正在执行', 'warning');
         const button = $('#runCleanupButton');
         let newerEmbeddedNotice = null;
+        let repairFailures = [];
         setButtonBusy(button, true, '执行中…');
         setResultEmpty($('#cleanupResult'), '执行结果', '正在等待本地清理接口返回步骤和输出。');
         try {
@@ -3136,6 +3144,7 @@
           const result = unwrapPayload(payload);
           const status = resultStatus(result, 'success');
           newerEmbeddedNotice = findCleanupNotice(result, 'embedded-cc-newer');
+          repairFailures = filterCleanupNotices(result, 'cleanup-auto-repair-failed');
           renderResult($('#cleanupResult'), result, {
             title: '执行结果',
             summary: status === 'partial'
@@ -3157,6 +3166,20 @@
           state.cleanupBusy = false;
           setButtonBusy(button, false, '执行清理');
           applyConfigToModes();
+        }
+        if (repairFailures.length) {
+          const details = repairFailures.map((failure) => {
+            const stage = displayValue(failure.stage) || '清理步骤';
+            const reason = displayValue(failure.reason) || '未提供具体原因';
+            return `${stage}：${reason}`;
+          }).join('\n');
+          await confirmAction({
+            title: '自动修复未完成',
+            message: `已经保留安全完成的部分。以下项目复查后仍然失败：\n${details}`,
+            confirmLabel: '知道了',
+            tone: 'danger',
+            noticeOnly: true
+          });
         }
         if (newerEmbeddedNotice) {
           const currentVersion = displayValue(newerEmbeddedNotice.version) || '未知版本';

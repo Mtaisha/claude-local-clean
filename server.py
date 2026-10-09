@@ -141,9 +141,16 @@ def parse_cleanup_output(output: str) -> tuple[str, list[dict[str, str]]]:
             visible_lines.append(raw)
             continue
         notice = {
-            key: item
+            key: item[:1200]
             for key, item in value.items()
-            if key in {"code", "version", "supported_version"} and isinstance(item, str)
+            if key in {
+                "code",
+                "version",
+                "supported_version",
+                "stage",
+                "reason",
+            }
+            and isinstance(item, str)
         }
         notices.append(notice)
     return "".join(visible_lines), notices

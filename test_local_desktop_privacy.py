@@ -80,6 +80,22 @@ class LocalDesktopPrivacyTests(unittest.TestCase):
             self.assertTrue((ant_did / "keep").exists())
             self.assertTrue((sentry / "keep").exists())
 
+    def test_residue_cleanup_fails_when_target_remains_after_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            appdata = root / "Roaming"
+            local_appdata = root / "Local"
+            target = appdata / "Claude" / "ant-did"
+            target.mkdir(parents=True)
+
+            with patch.object(privacy, "_remove_exact_path", return_value=(0, 0)):
+                with self.assertRaisesRegex(
+                    privacy.DesktopPrivacyError, "remained after cleanup"
+                ):
+                    privacy.clean_desktop_privacy_residue(
+                        appdata=appdata, local_appdata=local_appdata
+                    )
+
     def test_managed_privacy_merge_preserves_other_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             local_appdata = Path(temp)
@@ -103,6 +119,27 @@ class LocalDesktopPrivacyTests(unittest.TestCase):
             for key, value in privacy.MANAGED_PRIVACY_VALUES.items():
                 self.assertIs(config[key], value)
             self.assertFalse(config_path.with_name(config_path.name + ".tmp-clean").exists())
+
+    def test_managed_privacy_fails_when_write_does_not_persist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            local_appdata = Path(temp)
+            library = local_appdata / "Claude-3p" / "configLibrary"
+            library.mkdir(parents=True)
+            applied_id = "00112233-4455-6677-8899-aabbccddeeff"
+            (library / "_meta.json").write_text(
+                json.dumps({"appliedId": applied_id}), encoding="utf-8"
+            )
+            (library / f"{applied_id}.json").write_text(
+                json.dumps({"theme": "keep"}), encoding="utf-8"
+            )
+
+            with patch.object(privacy, "_write_json_atomic"):
+                with self.assertRaisesRegex(
+                    privacy.DesktopPrivacyError, "verification failed"
+                ):
+                    privacy.apply_desktop_managed_privacy(
+                        local_appdata=local_appdata
+                    )
 
     def test_supported_payload_patch_is_equal_length_and_idempotent(self) -> None:
         middle_length = (
