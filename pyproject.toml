@@ -1,0 +1,15 @@
+[project]
+name = "claude-local-clean"
+version = "1.0.0"
+description = "Local-only Windows cleanup and privacy controls for Claude Code and Claude Desktop"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Mtaisha" }]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]

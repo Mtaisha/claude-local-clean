@@ -1,0 +1,2327 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>本机 Claude 清理控制台</title>
+  <style>
+    :root {
+      --page: #eef1f2;
+      --surface: #ffffff;
+      --surface-muted: #f6f8f8;
+      --ink: #1d2a30;
+      --muted: #617079;
+      --faint: #8b989e;
+      --line: #d7e0e2;
+      --line-strong: #bdcbd0;
+      --accent: #176b70;
+      --accent-dark: #0f555b;
+      --accent-soft: #e4f1f0;
+      --success: #2d7353;
+      --success-soft: #e8f3ed;
+      --warning: #9a611f;
+      --warning-soft: #fff1dc;
+      --danger: #a13f42;
+      --danger-soft: #fbe9e9;
+      --focus: #0f7c87;
+      --radius: 7px;
+      --shadow: 0 1px 2px rgba(25, 45, 51, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-width: 320px;
+      background: var(--page);
+    }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+    }
+
+    button:focus-visible,
+    input:focus-visible {
+      outline: 3px solid rgba(15, 124, 135, 0.24);
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+    }
+
+    code,
+    pre,
+    .mono {
+      font-family: Consolas, "SFMono-Regular", "Cascadia Code", monospace;
+    }
+
+    code {
+      overflow-wrap: anywhere;
+      color: #254a51;
+    }
+
+    .app-shell {
+      width: min(1180px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 28px 0 52px;
+    }
+
+    .app-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 28px;
+      padding: 4px 0 24px;
+    }
+
+    .brand-lockup {
+      display: flex;
+      align-items: flex-start;
+      gap: 13px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      display: grid;
+      flex: 0 0 auto;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid #9bb4b7;
+      border-radius: 7px;
+      color: var(--accent-dark);
+      background: var(--accent-soft);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .brand-copy h1,
+    .section-heading h2,
+    .section-heading h3,
+    .panel-heading h3,
+    .mode-row h3,
+    .result-heading h3 {
+      margin: 0;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    .brand-copy h1 {
+      font-size: clamp(20px, 2.1vw, 25px);
+      line-height: 1.25;
+    }
+
+    .brand-copy p {
+      max-width: 620px;
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .connection-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.66);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+
+    .connection-state.is-ready .status-dot,
+    .status-dot.is-ready {
+      background: var(--success);
+    }
+
+    .connection-state.is-busy .status-dot,
+    .status-dot.is-busy {
+      background: var(--warning);
+    }
+
+    .connection-state.is-error .status-dot,
+    .status-dot.is-error {
+      background: var(--danger);
+    }
+
+    .top-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      margin-bottom: 23px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--line);
+    }
+
+    .tab-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 45px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      color: var(--muted);
+      background: var(--surface-muted);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 140ms ease, background 140ms ease;
+    }
+
+    .tab-button:hover {
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .tab-button[aria-selected="true"] {
+      color: var(--accent-dark);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .tab-index {
+      color: var(--faint);
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .tab-button[aria-selected="true"] .tab-index {
+      color: var(--accent);
+    }
+
+    .tab-panel[hidden] {
+      display: none;
+    }
+
+    .surface {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .surface + .surface {
+      margin-top: 16px;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 24px 26px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .section-heading h2 {
+      font-size: 22px;
+      line-height: 1.3;
+    }
+
+    .section-heading p {
+      max-width: 720px;
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .section-status,
+    .mini-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      flex: 0 0 auto;
+      min-height: 30px;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .section-status[data-tone="success"],
+    .mini-status[data-tone="success"] {
+      border-color: #b8d8c8;
+      color: var(--success);
+      background: var(--success-soft);
+    }
+
+    .section-status[data-tone="warning"],
+    .mini-status[data-tone="warning"] {
+      border-color: #e6cca4;
+      color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .section-status[data-tone="error"],
+    .mini-status[data-tone="error"] {
+      border-color: #e6b8ba;
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .section-body {
+      padding: 22px 26px 26px;
+    }
+
+    .mode-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .mode-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      min-height: 77px;
+      padding: 13px 15px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+
+    .mode-row:hover:not(.is-unavailable) {
+      border-color: #9cbec1;
+      background: #fbfdfd;
+    }
+
+    .mode-row:has(input:checked) {
+      border-color: #76a9ac;
+      background: #f5fbfa;
+    }
+
+    .mode-row.is-unavailable {
+      cursor: not-allowed;
+      opacity: 0.56;
+    }
+
+    .mode-radio {
+      position: relative;
+      display: grid;
+      width: 18px;
+      height: 18px;
+      place-items: center;
+    }
+
+    .mode-radio input {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    .mode-copy {
+      min-width: 0;
+    }
+
+    .mode-copy h3 {
+      font-size: 15px;
+    }
+
+    .mode-copy p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .mode-key {
+      max-width: 205px;
+      padding: 4px 7px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--faint);
+      background: var(--surface-muted);
+      font-size: 11px;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .mode-unavailable {
+      display: none;
+      margin-top: 2px;
+      color: var(--warning);
+      font-size: 11px;
+    }
+
+    .mode-row.is-unavailable .mode-unavailable {
+      display: block;
+    }
+
+    .action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .check-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .check-label input {
+      flex: 0 0 auto;
+      width: 17px;
+      height: 17px;
+      margin: 2px 0 0;
+      accent-color: var(--accent);
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      padding: 8px 14px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      white-space: nowrap;
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    .button-primary {
+      color: #ffffff;
+      background: var(--accent);
+    }
+
+    .button-primary:hover:not(:disabled) {
+      background: var(--accent-dark);
+    }
+
+    .button-secondary {
+      border-color: var(--line-strong);
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .button-secondary:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent-dark);
+      background: var(--accent-soft);
+    }
+
+    .button-danger {
+      border-color: #d9a5a7;
+      color: var(--danger);
+      background: var(--surface);
+    }
+
+    .button-danger:hover:not(:disabled) {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .button:disabled {
+      color: #9aa5a9;
+      background: #edf0f0;
+      border-color: #e0e5e6;
+    }
+
+    .result-panel {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-muted);
+    }
+
+    .result-panel.is-success {
+      border-color: #b8d8c8;
+      background: #f8fcf9;
+    }
+
+    .result-panel.is-warning {
+      border-color: #e6cca4;
+      background: #fffaf2;
+    }
+
+    .result-panel.is-error {
+      border-color: #e6b8ba;
+      background: #fff8f8;
+    }
+
+    .result-panel.is-empty {
+      color: var(--muted);
+    }
+
+    .result-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+    }
+
+    .result-heading h3 {
+      font-size: 14px;
+    }
+
+    .result-state {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .result-summary {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .result-block {
+      margin-top: 14px;
+    }
+
+    .result-block h4 {
+      margin: 0 0 6px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0 0 0 22px;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .step-list li {
+      padding-left: 4px;
+    }
+
+    .step-meta {
+      color: var(--muted);
+    }
+
+    .result-pre {
+      max-height: 260px;
+      margin: 0;
+      padding: 10px 12px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: #314047;
+      background: #ffffff;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .result-error .result-pre {
+      border-color: #e6b8ba;
+      color: var(--danger);
+      background: #fffafa;
+    }
+
+    .result-facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 18px;
+      margin: 12px 0 0;
+    }
+
+    .result-facts div {
+      min-width: 0;
+    }
+
+    .result-facts dt {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .result-facts dd {
+      margin: 2px 0 0;
+      color: var(--ink);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .empty-state {
+      padding: 18px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 26px 12px;
+    }
+
+    .panel-heading h3 {
+      font-size: 16px;
+    }
+
+    .account-summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(140px, 1fr));
+      gap: 1px;
+      margin: 0 26px 22px;
+      border: 1px solid var(--line);
+      background: var(--line);
+    }
+
+    .summary-cell {
+      min-width: 0;
+      padding: 14px 15px;
+      background: var(--surface-muted);
+    }
+
+    .summary-label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .summary-value {
+      display: block;
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    .summary-value code {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .account-list {
+      border-top: 1px solid var(--line);
+    }
+
+    .account-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.2fr) minmax(190px, 1fr) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 15px 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .account-row:last-child {
+      border-bottom: 0;
+    }
+
+    .account-identity {
+      min-width: 0;
+    }
+
+    .account-uuid {
+      display: block;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .account-state {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      margin-top: 6px;
+      padding: 2px 7px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--muted);
+      background: var(--surface-muted);
+      font-size: 11px;
+    }
+
+    .account-state.is-protected {
+      color: var(--accent-dark);
+      border-color: #b7d3d4;
+      background: var(--accent-soft);
+    }
+
+    .account-state.is-retireable {
+      color: var(--warning);
+      border-color: #e6cca4;
+      background: var(--warning-soft);
+    }
+
+    .account-meta {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .account-meta span {
+      min-width: 0;
+    }
+
+    .account-meta strong {
+      display: block;
+      margin-top: 2px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    .account-action {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .account-row-message {
+      grid-column: 1 / -1;
+      margin: -3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .policy-note {
+      margin: 0 26px 23px;
+      padding: 12px 14px;
+      border-left: 3px solid #9bb4b7;
+      color: var(--muted);
+      background: var(--surface-muted);
+      font-size: 12px;
+    }
+
+    .policy-note strong {
+      color: var(--ink);
+    }
+
+    .danger-section {
+      border-top: 1px solid var(--line);
+      background: #fffdfb;
+    }
+
+    .danger-section .panel-heading {
+      padding-top: 22px;
+    }
+
+    .danger-copy {
+      margin: 0 26px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .danger-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr) auto;
+      align-items: end;
+      gap: 14px;
+      padding: 0 26px 24px;
+    }
+
+    .field-group {
+      min-width: 0;
+    }
+
+    .field-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .text-input {
+      width: 100%;
+      min-height: 39px;
+      padding: 8px 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      color: var(--ink);
+      background: var(--surface);
+      font-size: 13px;
+    }
+
+    .text-input::placeholder {
+      color: #a2adb1;
+    }
+
+    .text-input:focus {
+      border-color: var(--focus);
+    }
+
+    .text-input.is-invalid {
+      border-color: var(--danger);
+      background: #fffafa;
+    }
+
+    .text-input.is-valid {
+      border-color: var(--success);
+      background: #fbfefc;
+    }
+
+    .field-feedback {
+      min-height: 20px;
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .field-feedback.is-invalid {
+      color: var(--danger);
+    }
+
+    .field-feedback.is-valid {
+      color: var(--success);
+    }
+
+    .machine-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+      gap: 24px;
+      padding: 22px 26px 26px;
+    }
+
+    .current-value {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 82px;
+      padding: 14px 15px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-muted);
+    }
+
+    .current-value code {
+      max-width: 64%;
+      color: var(--ink);
+      font-size: 13px;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .machine-form {
+      display: grid;
+      gap: 2px;
+    }
+
+    .machine-form .button {
+      justify-self: start;
+      margin-top: 8px;
+    }
+
+    .format-note {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .reboot-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 17px 26px 21px;
+      border-top: 1px solid var(--line);
+      background: #fbfcfc;
+    }
+
+    .reboot-copy strong {
+      display: block;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .reboot-copy p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .reboot-action {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      flex: 0 0 auto;
+    }
+
+    .app-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 18px;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 10;
+      max-width: min(420px, calc(100vw - 44px));
+      padding: 11px 14px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      color: var(--ink);
+      background: var(--surface);
+      box-shadow: 0 8px 24px rgba(25, 45, 51, 0.12);
+      font-size: 13px;
+    }
+
+    .toast[data-tone="success"] {
+      border-color: #b8d8c8;
+    }
+
+    .toast[data-tone="error"] {
+      border-color: #e6b8ba;
+      color: var(--danger);
+    }
+
+    .toast[data-tone="warning"] {
+      border-color: #e6cca4;
+      color: var(--warning);
+    }
+
+    .toast[hidden] {
+      display: none;
+    }
+
+    @media (max-width: 860px) {
+      .section-heading {
+        flex-direction: column;
+        gap: 13px;
+      }
+
+      .account-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .account-summary .summary-cell:first-child {
+        grid-column: 1 / -1;
+      }
+
+      .account-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .account-meta {
+        grid-column: 1 / -1;
+        grid-row: 2;
+      }
+
+      .account-action {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .machine-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .danger-form {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .danger-form .button {
+        grid-column: 1 / -1;
+        justify-self: start;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .app-shell {
+        width: min(100% - 22px, 1180px);
+        padding-top: 16px;
+      }
+
+      .app-header {
+        flex-direction: column;
+        gap: 14px;
+        padding-bottom: 18px;
+      }
+
+      .connection-state {
+        align-self: flex-start;
+      }
+
+      .top-tabs {
+        display: flex;
+        overflow-x: auto;
+      }
+
+      .tab-button {
+        flex: 1 0 142px;
+      }
+
+      .section-heading,
+      .section-body {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .mode-row {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
+      .mode-key {
+        grid-column: 2;
+        justify-self: start;
+        max-width: 100%;
+        text-align: left;
+      }
+
+      .action-bar,
+      .reboot-bar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .action-bar .button,
+      .reboot-action,
+      .reboot-action .button {
+        width: 100%;
+      }
+
+      .account-summary {
+        grid-template-columns: 1fr;
+        margin-right: 16px;
+        margin-left: 16px;
+      }
+
+      .account-summary .summary-cell:first-child {
+        grid-column: auto;
+      }
+
+      .panel-heading,
+      .account-row,
+      .policy-note,
+      .danger-copy,
+      .danger-form,
+      .reboot-bar {
+        padding-right: 16px;
+        padding-left: 16px;
+      }
+
+      .policy-note,
+      .danger-copy {
+        margin-right: 16px;
+        margin-left: 16px;
+      }
+
+      .account-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 11px;
+      }
+
+      .account-action {
+        grid-column: 2;
+      }
+
+      .account-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .danger-form {
+        grid-template-columns: 1fr;
+      }
+
+      .danger-form .button {
+        grid-column: auto;
+      }
+
+      .current-value {
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .current-value code {
+        max-width: 100%;
+        text-align: left;
+      }
+
+      .reboot-action {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .app-footer {
+        flex-direction: column;
+        gap: 3px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">CL</div>
+        <div class="brand-copy">
+          <h1>本机 Claude 清理控制台</h1>
+          <p>查看状态、选择范围，并执行明确的本地操作。</p>
+        </div>
+      </div>
+      <div id="connectionState" class="connection-state is-busy" role="status" aria-live="polite">
+        <span class="status-dot is-busy" aria-hidden="true"></span>
+        <span id="connectionLabel">正在读取配置</span>
+      </div>
+    </header>
+
+    <nav class="top-tabs" role="tablist" aria-label="主要功能">
+      <button class="tab-button" id="tab-cleanup" type="button" role="tab" aria-selected="true" aria-controls="panel-cleanup" tabindex="0" data-tab="cleanup">
+        <span class="tab-index">01</span>
+        <span>环境清理</span>
+      </button>
+      <button class="tab-button" id="tab-account" type="button" role="tab" aria-selected="false" aria-controls="panel-account" tabindex="-1" data-tab="account">
+        <span class="tab-index">02</span>
+        <span>Claude 账号</span>
+      </button>
+      <button class="tab-button" id="tab-machine" type="button" role="tab" aria-selected="false" aria-controls="panel-machine" tabindex="-1" data-tab="machine">
+        <span class="tab-index">03</span>
+        <span>Machine ID</span>
+      </button>
+    </nav>
+
+    <main>
+      <section id="panel-cleanup" class="tab-panel" role="tabpanel" aria-labelledby="tab-cleanup" data-panel="cleanup">
+        <section class="surface">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">本地维护</div>
+              <h2>环境清理</h2>
+              <p>选择一个已定义的清理范围。每次执行前都需要明确确认，执行结果会保留在本页。</p>
+            </div>
+            <div id="cleanupRunState" class="section-status" data-tone="neutral">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span>尚未执行</span>
+            </div>
+          </div>
+          <div class="section-body">
+            <div id="modeList" class="mode-list">
+              <label class="mode-row" data-mode-row="device-links">
+                <span class="mode-radio">
+                  <input type="radio" name="cleanup-mode" value="device-links" checked disabled>
+                </span>
+                <span class="mode-copy">
+                  <h3>设备关联</h3>
+                  <p>清理 Claude 本地设备关联标识。</p>
+                  <span class="mode-unavailable">当前配置未提供此模式</span>
+                </span>
+                <code class="mode-key">device-links</code>
+              </label>
+              <label class="mode-row" data-mode-row="device-links-audit">
+                <span class="mode-radio">
+                  <input type="radio" name="cleanup-mode" value="device-links-audit" disabled>
+                </span>
+                <span class="mode-copy">
+                  <h3>设备关联 + 审计</h3>
+                  <p>清理设备关联，并检查桌面端本地审计记录。</p>
+                  <span class="mode-unavailable">当前配置未提供此模式</span>
+                </span>
+                <code class="mode-key">device-links-audit</code>
+              </label>
+              <label class="mode-row" data-mode-row="full">
+                <span class="mode-radio">
+                  <input type="radio" name="cleanup-mode" value="full" disabled>
+                </span>
+                <span class="mode-copy">
+                  <h3>完整清理</h3>
+                  <p>执行完整的本地清理流程，按后端保护规则保留必要数据。</p>
+                  <span class="mode-unavailable">当前配置未提供此模式</span>
+                </span>
+                <code class="mode-key">full</code>
+              </label>
+              <label class="mode-row" data-mode-row="privacy-harden">
+                <span class="mode-radio">
+                  <input type="radio" name="cleanup-mode" value="privacy-harden" disabled>
+                </span>
+                <span class="mode-copy">
+                  <h3>隐私加固</h3>
+                  <p>写入隐私相关配置，不删除账号内容。</p>
+                  <span class="mode-unavailable">当前配置未提供此模式</span>
+                </span>
+                <code class="mode-key">privacy-harden</code>
+              </label>
+            </div>
+
+            <div class="action-bar">
+              <label class="check-label" for="cleanupConfirm">
+                <input id="cleanupConfirm" type="checkbox" disabled>
+                <span>我已确认将仅对当前本机的 Claude 数据执行所选操作。</span>
+              </label>
+              <button id="runCleanupButton" class="button button-primary" type="button" disabled>执行清理</button>
+            </div>
+
+            <div id="cleanupResult" class="result-panel is-empty" role="status" aria-live="polite">
+              <div class="result-heading">
+                <h3>执行结果</h3>
+                <span class="result-state">等待执行</span>
+              </div>
+              <p class="result-summary">选择清理模式并确认后，接口输出会显示在这里。</p>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="panel-account" class="tab-panel" role="tabpanel" aria-labelledby="tab-account" data-panel="account" hidden>
+        <section class="surface">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">账号状态</div>
+              <h2>Claude 账号</h2>
+              <p>查看当前账号和扫描到的旧账号。当前账号与登录层按保护规则处理，旧账号可以逐项退役。</p>
+            </div>
+            <div id="accountStatus" class="section-status" data-tone="neutral">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span>正在读取</span>
+            </div>
+          </div>
+
+          <div class="section-body">
+            <div class="account-summary" aria-label="账号摘要">
+              <div class="summary-cell">
+                <span class="summary-label">当前账号 UUID</span>
+                <span id="currentAccountUuid" class="summary-value"><code>读取中…</code></span>
+              </div>
+              <div class="summary-cell">
+                <span class="summary-label">识别到的账号</span>
+                <span id="accountCount" class="summary-value">读取中…</span>
+              </div>
+              <div class="summary-cell">
+                <span class="summary-label">客户端状态</span>
+                <span id="claudeProcessState" class="summary-value">读取中…</span>
+              </div>
+            </div>
+
+            <div class="policy-note">
+              <strong>保护规则：</strong>当前账号、登录存储和工作资产不会由旧账号退役操作处理。全清账号与登录层需要单独确认，并且必须先退出全部账号。
+            </div>
+
+            <div class="panel-heading">
+              <h3>旧账号</h3>
+              <span id="staleAccountCount" class="mini-status">0 项</span>
+            </div>
+            <div id="accountList" class="account-list">
+              <div class="empty-state" style="padding: 18px 26px;">正在扫描账号记录…</div>
+            </div>
+
+            <div class="result-panel is-empty" id="accountActionResult" role="status" aria-live="polite">
+              <div class="result-heading">
+                <h3>账号操作结果</h3>
+                <span class="result-state">等待操作</span>
+              </div>
+              <p class="result-summary">退役或全清完成后，接口结果会显示在这里。</p>
+            </div>
+          </div>
+
+          <section class="danger-section" aria-labelledby="reset-heading">
+            <div class="panel-heading">
+              <h3 id="reset-heading">全清账号与登录层</h3>
+              <span class="mini-status" data-tone="warning">高影响操作</span>
+            </div>
+            <p class="danger-copy">仅在已退出全部 Claude 账号且客户端完全关闭后使用。此操作会清空识别到的账号、登录存储和对应凭据。</p>
+            <form id="resetAccountForm" class="danger-form">
+              <label class="check-label" for="loggedOutAck">
+                <input id="loggedOutAck" type="checkbox">
+                <span>我确认当前已经退出全部 Claude 账号。</span>
+              </label>
+              <div class="field-group">
+                <label class="field-label" for="resetAccountConfirm">二次确认</label>
+                <input id="resetAccountConfirm" class="text-input mono" type="text" autocomplete="off" spellcheck="false" placeholder="RESET_ALL_CLAUDE_ACCOUNTS">
+                <p id="resetConfirmFeedback" class="field-feedback">请输入界面提示中的完整确认文本。</p>
+              </div>
+              <button id="resetAccountButton" class="button button-danger" type="submit" disabled>清空账号与登录层</button>
+            </form>
+          </section>
+        </section>
+      </section>
+
+      <section id="panel-machine" class="tab-panel" role="tabpanel" aria-labelledby="tab-machine" data-panel="machine" hidden>
+        <section class="surface">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">系统标识</div>
+              <h2>Machine ID</h2>
+              <p>查看当前 GUID，写入新的合法值，并在需要时单独发起重启。</p>
+            </div>
+            <div id="machineStatus" class="section-status" data-tone="neutral">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span>正在读取</span>
+            </div>
+          </div>
+
+          <div class="machine-grid">
+            <div>
+              <span class="field-label">当前值</span>
+              <div class="current-value">
+                <span class="summary-label">Machine ID</span>
+                <code id="machineIdCurrent">读取中…</code>
+              </div>
+            </div>
+
+            <form id="machineIdForm" class="machine-form">
+              <div class="field-group">
+                <label class="field-label" for="machineIdInput">新值</label>
+                <input id="machineIdInput" class="text-input mono" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="36" placeholder="32 位十六进制或标准 GUID" aria-describedby="machineIdFeedback machineIdFormat">
+                <p id="machineIdFeedback" class="field-feedback">等待输入。</p>
+                <p id="machineIdFormat" class="format-note">支持 `0123456789abcdef0123456789abcdef` 或 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`。</p>
+              </div>
+              <button id="writeMachineIdButton" class="button button-primary" type="submit" disabled>写入 Machine ID</button>
+            </form>
+          </div>
+
+          <div class="reboot-bar">
+            <div class="reboot-copy">
+              <strong>应用修改</strong>
+              <p>写入后不会自动重启；确认后再发起本机重启。</p>
+            </div>
+            <div class="reboot-action">
+              <label class="check-label" for="rebootConfirm">
+                <input id="rebootConfirm" type="checkbox">
+                <span>我确认现在可以重启本机。</span>
+              </label>
+              <button id="rebootButton" class="button button-secondary" type="button" disabled>重启本机</button>
+            </div>
+          </div>
+
+          <div class="section-body" style="padding-top: 0;">
+            <div id="machineActionResult" class="result-panel is-empty" role="status" aria-live="polite">
+              <div class="result-heading">
+                <h3>Machine ID 操作结果</h3>
+                <span class="result-state">等待操作</span>
+              </div>
+              <p class="result-summary">写入或重启完成后，接口结果会显示在这里。</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span>所有修改操作都需要接口令牌和明确确认。</span>
+      <span id="configModeSummary">配置尚未读取</span>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const MODE_DEFINITIONS = [
+        { key: 'device-links', label: '设备关联' },
+        { key: 'device-links-audit', label: '设备关联 + 审计' },
+        { key: 'full', label: '完整清理' },
+        { key: 'privacy-harden', label: '隐私加固' }
+      ];
+
+      const STATUS_LABELS = {
+        success: '完成',
+        ok: '完成',
+        completed: '完成',
+        updated: '已更新',
+        current: '无需变化',
+        partial: '部分完成',
+        warning: '需要注意',
+        failed: '失败',
+        error: '失败',
+        blocked: '已阻止',
+        unavailable: '不可用',
+        running: '执行中'
+      };
+
+      const state = {
+        csrfToken: '',
+        configLoaded: false,
+        availableModes: new Set(),
+        cleanupBusy: false,
+        accountBusy: false,
+        machineBusy: false,
+        accountData: null,
+        machineId: '',
+        machineIdWritten: false,
+        toastTimer: null
+      };
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+      function isObject(value) {
+        return value !== null && typeof value === 'object' && !Array.isArray(value);
+      }
+
+      function clearElement(element) {
+        while (element.firstChild) {
+          element.removeChild(element.firstChild);
+        }
+      }
+
+      function createElement(tag, className, text) {
+        const element = document.createElement(tag);
+        if (className) {
+          element.className = className;
+        }
+        if (text !== undefined && text !== null) {
+          element.textContent = String(text);
+        }
+        return element;
+      }
+
+      function displayValue(value) {
+        if (value === undefined || value === null || value === '') {
+          return '';
+        }
+        if (typeof value === 'string') {
+          return value;
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+          return String(value);
+        }
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (error) {
+          return String(value);
+        }
+      }
+
+      function unwrapPayload(payload) {
+        if (isObject(payload) && isObject(payload.result)) {
+          return payload.result;
+        }
+        if (isObject(payload) && isObject(payload.data)) {
+          return payload.data;
+        }
+        return payload;
+      }
+
+      function errorMessage(payload) {
+        const candidate = unwrapPayload(payload);
+        if (typeof candidate === 'string' && candidate.trim()) {
+          return candidate.trim();
+        }
+        if (isObject(candidate)) {
+          for (const key of ['error', 'message', 'detail', 'failure', 'reason', 'stderr']) {
+            if (candidate[key]) {
+              const text = displayValue(candidate[key]);
+              if (text) {
+                return text;
+              }
+            }
+          }
+        }
+        return '';
+      }
+
+      async function apiRequest(path, options = {}) {
+        const method = options.method || 'GET';
+        const isWrite = Boolean(options.write);
+        const headers = {
+          Accept: 'application/json',
+          ...(options.headers || {})
+        };
+
+        if (options.body !== undefined) {
+          headers['Content-Type'] = 'application/json';
+        }
+        if (isWrite) {
+          if (!state.csrfToken) {
+            throw new Error('接口令牌尚未就绪，暂时不能执行修改操作。');
+          }
+          headers['X-Cleanup-Token'] = state.csrfToken;
+        }
+
+        const response = await fetch(path, {
+          method,
+          headers,
+          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          credentials: 'same-origin'
+        });
+
+        const raw = await response.text();
+        let payload = null;
+        if (raw) {
+          try {
+            payload = JSON.parse(raw);
+          } catch (error) {
+            payload = raw;
+          }
+        }
+
+        if (!response.ok) {
+          const message = errorMessage(payload) || `请求失败（HTTP ${response.status}）。`;
+          const requestError = new Error(message);
+          requestError.status = response.status;
+          requestError.payload = payload;
+          throw requestError;
+        }
+
+        return payload;
+      }
+
+      function setConnectionState(tone, text) {
+        const container = $('#connectionState');
+        const dot = $('.status-dot', container);
+        container.classList.remove('is-ready', 'is-busy', 'is-error');
+        if (tone === 'success') {
+          container.classList.add('is-ready');
+          dot.className = 'status-dot is-ready';
+        } else if (tone === 'error') {
+          container.classList.add('is-error');
+          dot.className = 'status-dot is-error';
+        } else {
+          container.classList.add('is-busy');
+          dot.className = 'status-dot is-busy';
+        }
+        $('#connectionLabel').textContent = text;
+      }
+
+      function setSectionStatus(element, text, tone = 'neutral') {
+        if (!element) {
+          return;
+        }
+        const dot = $('.status-dot', element);
+        element.dataset.tone = tone;
+        if (dot) {
+          dot.className = 'status-dot';
+          if (tone === 'success') {
+            dot.classList.add('is-ready');
+          } else if (tone === 'warning') {
+            dot.classList.add('is-busy');
+          } else if (tone === 'error') {
+            dot.classList.add('is-error');
+          }
+        }
+        const label = element.querySelector('span:last-child');
+        if (label) {
+          label.textContent = text;
+        }
+      }
+
+      function setToast(message, tone = 'neutral') {
+        const toast = $('#toast');
+        window.clearTimeout(state.toastTimer);
+        toast.textContent = message;
+        toast.dataset.tone = tone;
+        toast.hidden = false;
+        state.toastTimer = window.setTimeout(() => {
+          toast.hidden = true;
+        }, 4200);
+      }
+
+      function normalizeModeSet(value) {
+        if (!Array.isArray(value)) {
+          return new Set();
+        }
+        const keys = value.map((entry) => {
+          if (typeof entry === 'string') {
+            return entry;
+          }
+          if (isObject(entry)) {
+            return entry.key || entry.mode || entry.id || entry.name || '';
+          }
+          return '';
+        });
+        return new Set(keys.filter((key) => MODE_DEFINITIONS.some((mode) => mode.key === key)));
+      }
+
+      function applyConfigToModes() {
+        $$('[data-mode-row]').forEach((row) => {
+          const mode = row.dataset.modeRow;
+          const input = $('input', row);
+          const available = state.configLoaded && state.availableModes.has(mode);
+          row.classList.toggle('is-unavailable', !available);
+          input.disabled = !available || state.cleanupBusy;
+        });
+
+        const selected = $('input[name="cleanup-mode"]:checked');
+        if (selected && selected.disabled) {
+          const firstAvailable = $$('input[name="cleanup-mode"]').find((input) => !input.disabled);
+          if (firstAvailable) {
+            firstAvailable.checked = true;
+          }
+        }
+        $('#configModeSummary').textContent = state.configLoaded
+          ? `可用清理模式：${state.availableModes.size}/${MODE_DEFINITIONS.length}`
+          : '配置尚未读取';
+        updateActionStates();
+      }
+
+      function updateActionStates() {
+        const selectedMode = $('input[name="cleanup-mode"]:checked');
+        const cleanupConfirm = $('#cleanupConfirm');
+        const canRunCleanup = Boolean(
+          state.configLoaded &&
+          state.csrfToken &&
+          selectedMode &&
+          !selectedMode.disabled &&
+          cleanupConfirm.checked &&
+          !state.cleanupBusy
+        );
+        cleanupConfirm.disabled = !state.configLoaded || state.cleanupBusy || !state.csrfToken;
+        $('#runCleanupButton').disabled = !canRunCleanup;
+
+        const resetInput = $('#resetAccountConfirm');
+        const resetReady = Boolean(
+          state.csrfToken &&
+          $('#loggedOutAck').checked &&
+          resetInput.value.trim() === 'RESET_ALL_CLAUDE_ACCOUNTS' &&
+          !state.accountBusy
+        );
+        $('#resetAccountButton').disabled = !resetReady;
+
+        const machineInput = $('#machineIdInput');
+        const machineReady = Boolean(
+          state.csrfToken &&
+          machineInput.value.trim() &&
+          isValidMachineId(machineInput.value.trim()) &&
+          !state.machineBusy
+        );
+        $('#writeMachineIdButton').disabled = !machineReady;
+        const rebootReady = Boolean(
+          state.csrfToken &&
+          state.machineId &&
+          $('#rebootConfirm').checked &&
+          !state.machineBusy
+        );
+        $('#rebootButton').disabled = !rebootReady;
+
+        $$('[data-account-action]').forEach((button) => {
+          button.disabled = state.accountBusy || !state.csrfToken || button.dataset.retireable !== 'true';
+        });
+      }
+
+      async function loadConfig() {
+        setConnectionState('busy', '正在读取配置');
+        try {
+          const payload = unwrapPayload(await apiRequest('/api/config'));
+          state.csrfToken = isObject(payload) && typeof payload.csrf_token === 'string' ? payload.csrf_token : '';
+          state.availableModes = normalizeModeSet(isObject(payload) ? payload.cleanup_modes : []);
+          state.configLoaded = true;
+          applyConfigToModes();
+          if (isObject(payload) && payload.running) {
+            state.cleanupBusy = true;
+            setSectionStatus($('#cleanupRunState'), '接口正在运行', 'warning');
+            applyConfigToModes();
+          }
+          if (state.csrfToken) {
+            setConnectionState('success', '接口已连接');
+          } else {
+            setConnectionState('error', '配置缺少接口令牌');
+          }
+          updateActionStates();
+        } catch (error) {
+          state.configLoaded = false;
+          state.csrfToken = '';
+          state.availableModes = new Set();
+          applyConfigToModes();
+          setConnectionState('error', '接口不可用');
+          setSectionStatus($('#cleanupRunState'), '配置读取失败', 'error');
+          setToast(error.message, 'error');
+        }
+      }
+
+      function setResultEmpty(container, title, summary) {
+        clearElement(container);
+        container.className = 'result-panel is-empty';
+        const heading = createElement('div', 'result-heading');
+        heading.append(createElement('h3', '', title), createElement('span', 'result-state', '等待操作'));
+        container.append(heading, createElement('p', 'result-summary', summary));
+      }
+
+      function resultStatus(payload, fallback = 'success') {
+        const value = isObject(payload) && payload.status ? String(payload.status).toLowerCase() : '';
+        if (value) {
+          return value;
+        }
+        if (isObject(payload) && payload.ok === false) {
+          return 'error';
+        }
+        return fallback;
+      }
+
+      function resultTone(status) {
+        if (['failed', 'error', 'blocked', 'unavailable'].includes(status)) {
+          return 'error';
+        }
+        if (['partial', 'warning', 'running'].includes(status)) {
+          return 'warning';
+        }
+        return 'success';
+      }
+
+      function appendResultText(container, heading, value, className = '') {
+        const block = createElement('div', `result-block ${className}`.trim());
+        block.append(createElement('h4', '', heading));
+        block.append(createElement('pre', 'result-pre', displayValue(value)));
+        container.append(block);
+      }
+
+      function getSteps(payload) {
+        if (!isObject(payload)) {
+          return [];
+        }
+        const raw = payload.steps || payload.step_results || payload.results;
+        if (Array.isArray(raw)) {
+          return raw;
+        }
+        if (isObject(raw)) {
+          return Object.entries(raw).map(([name, value]) => ({ name, output: value }));
+        }
+        return [];
+      }
+
+      function appendSteps(container, payload) {
+        const steps = getSteps(payload);
+        if (!steps.length) {
+          return;
+        }
+        const block = createElement('div', 'result-block');
+        block.append(createElement('h4', '', '步骤'));
+        const list = createElement('ol', 'step-list');
+        steps.forEach((step, index) => {
+          const item = createElement('li');
+          if (isObject(step)) {
+            const name = step.name || step.label || step.title || step.step || `步骤 ${index + 1}`;
+            item.append(createElement('strong', '', name));
+            const stepStatus = step.status || step.state;
+            if (stepStatus) {
+              item.append(createElement('span', 'step-meta', ` · ${STATUS_LABELS[String(stepStatus).toLowerCase()] || stepStatus}`));
+            }
+            const detail = step.output || step.error || step.message;
+            if (detail) {
+              item.append(createElement('div', 'step-meta', displayValue(detail)));
+            }
+          } else {
+            item.textContent = displayValue(step) || `步骤 ${index + 1}`;
+          }
+          list.append(item);
+        });
+        block.append(list);
+        container.append(block);
+      }
+
+      function appendFacts(container, facts) {
+        const present = facts.filter((fact) => fact[1] !== undefined && fact[1] !== null && fact[1] !== '');
+        if (!present.length) {
+          return;
+        }
+        const list = createElement('dl', 'result-facts');
+        present.forEach(([label, value]) => {
+          const wrapper = createElement('div');
+          wrapper.append(createElement('dt', '', label));
+          wrapper.append(createElement('dd', '', displayValue(value)));
+          list.append(wrapper);
+        });
+        container.append(list);
+      }
+
+      function renderResult(container, payload, options = {}) {
+        const result = unwrapPayload(payload);
+        const status = resultStatus(result, options.fallbackStatus || 'success');
+        const tone = resultTone(status);
+        const title = options.title || '操作结果';
+        const summary = options.summary || errorMessage(result) || (STATUS_LABELS[status] || '接口已返回结果');
+
+        clearElement(container);
+        container.className = `result-panel is-${tone}`;
+        const heading = createElement('div', 'result-heading');
+        heading.append(
+          createElement('h3', '', title),
+          createElement('span', 'result-state', STATUS_LABELS[status] || status)
+        );
+        container.append(heading, createElement('p', 'result-summary', summary));
+
+        if (isObject(result)) {
+          appendSteps(container, result);
+          const output = result.output || result.stdout;
+          if (output) {
+            appendResultText(container, '输出', output);
+          }
+          const error = result.error || result.stderr || result.failure;
+          if (error) {
+            appendResultText(container, '错误', error, 'result-error');
+          }
+          appendFacts(container, options.facts ? options.facts(result) : []);
+        } else if (result) {
+          appendResultText(container, '输出', result);
+        }
+      }
+
+      async function runCleanup() {
+        if (state.cleanupBusy) {
+          return;
+        }
+        const selected = $('input[name="cleanup-mode"]:checked');
+        if (!selected || selected.disabled || !$('#cleanupConfirm').checked) {
+          return;
+        }
+        state.cleanupBusy = true;
+        applyConfigToModes();
+        setSectionStatus($('#cleanupRunState'), '正在执行', 'warning');
+        const button = $('#runCleanupButton');
+        button.textContent = '执行中…';
+        setResultEmpty($('#cleanupResult'), '执行结果', '正在等待本地清理接口返回步骤和输出。');
+        try {
+          const payload = await apiRequest('/api/run', {
+            method: 'POST',
+            write: true,
+            body: {
+              mode: selected.value,
+              confirmation: 'RUN_LOCAL_CLEANUP'
+            }
+          });
+          const result = unwrapPayload(payload);
+          const status = resultStatus(result, 'success');
+          renderResult($('#cleanupResult'), result, {
+            title: '执行结果',
+            summary: status === 'partial' ? '清理已部分完成，请查看步骤与错误信息。' : '已收到清理接口返回结果。'
+          });
+          setSectionStatus($('#cleanupRunState'), STATUS_LABELS[status] || '已返回', resultTone(status));
+          setToast('清理接口已返回结果。', resultTone(status));
+        } catch (error) {
+          renderResult($('#cleanupResult'), { status: 'error', error: error.message }, {
+            title: '执行结果',
+            summary: '清理请求未完成，请查看错误信息。'
+          });
+          setSectionStatus($('#cleanupRunState'), '执行失败', 'error');
+          setToast(error.message, 'error');
+        } finally {
+          state.cleanupBusy = false;
+          button.textContent = '执行清理';
+          applyConfigToModes();
+        }
+      }
+
+      function formatBytes(value) {
+        const bytes = Number(value);
+        if (!Number.isFinite(bytes) || bytes < 0) {
+          return '未提供';
+        }
+        if (bytes < 1024) {
+          return `${Math.round(bytes)} B`;
+        }
+        const units = ['KB', 'MB', 'GB', 'TB'];
+        let amount = bytes;
+        let unitIndex = -1;
+        while (amount >= 1024 && unitIndex < units.length - 1) {
+          amount /= 1024;
+          unitIndex += 1;
+        }
+        const precision = amount >= 100 ? 0 : amount >= 10 ? 1 : 2;
+        return `${amount.toFixed(precision)} ${units[unitIndex]}`;
+      }
+
+      function safeSourceLabels(sources) {
+        const values = Array.isArray(sources) ? sources : sources ? [sources] : [];
+        const labels = new Set();
+        values.forEach((source) => {
+          const text = String(source).toLowerCase();
+          if (text.includes('account-map') || text.includes('map')) {
+            labels.add('账号映射');
+          } else if (text.includes('anchor') || text.includes('锚点')) {
+            labels.add('账号锚点');
+          } else if (text.includes('session') || text.includes('会话')) {
+            labels.add('会话目录');
+          } else if (text.includes('config') || text.includes('配置')) {
+            labels.add('账号配置');
+          } else {
+            labels.add('本机账号记录');
+          }
+        });
+        return Array.from(labels);
+      }
+
+      function extractAccounts(payload) {
+        const data = unwrapPayload(payload);
+        if (!isObject(data)) {
+          return [];
+        }
+        const raw = data.detected_accounts || data.accounts || data.old_accounts || [];
+        return Array.isArray(raw) ? raw : [];
+      }
+
+      function currentAccountSet(data) {
+        const values = isObject(data) && Array.isArray(data.current_account_uuids)
+          ? data.current_account_uuids.slice()
+          : [];
+        if (isObject(data) && data.current_account_uuid) {
+          values.push(data.current_account_uuid);
+        }
+        return new Set(values.map((value) => String(value).toLowerCase()));
+      }
+
+      function renderAccountList(data) {
+        const list = $('#accountList');
+        clearElement(list);
+        const accounts = extractAccounts(data);
+        const currentSet = currentAccountSet(data);
+        const staleAccounts = accounts.filter((account) => {
+          const uuid = String(account.uuid || account.account_uuid || '').toLowerCase();
+          return Boolean(account.retireable) && !currentSet.has(uuid);
+        });
+        $('#accountCount').textContent = `${accounts.length} 项`;
+        $('#staleAccountCount').textContent = `${staleAccounts.length} 项可退役`;
+
+        if (!staleAccounts.length) {
+          list.append(createElement('div', 'empty-state', '未识别到可退役的旧账号。'));
+          return;
+        }
+
+        staleAccounts.forEach((account) => {
+          const uuid = String(account.uuid || account.account_uuid || '未提供 UUID');
+          const retireable = true;
+          const row = createElement('div', 'account-row');
+
+          const identity = createElement('div', 'account-identity');
+          identity.append(createElement('code', 'account-uuid', uuid));
+          identity.append(createElement(
+            'span',
+            `account-state ${retireable ? 'is-retireable' : 'is-protected'}`,
+            retireable ? '可退役' : '受保护'
+          ));
+
+          const meta = createElement('div', 'account-meta');
+          const sourceGroup = createElement('span');
+          sourceGroup.append(createElement('span', '', '来源'));
+          const sourceLabels = safeSourceLabels(account.sources);
+          sourceGroup.append(createElement('strong', '', sourceLabels.length ? sourceLabels.join('、') : '未标明'));
+          const sizeGroup = createElement('span');
+          sizeGroup.append(createElement('span', '', '大小'));
+          sizeGroup.append(createElement('strong', '', formatBytes(account.bytes ?? account.size_bytes ?? account.size)));
+          meta.append(sourceGroup, sizeGroup);
+
+          const action = createElement('div', 'account-action');
+          const button = createElement('button', `button ${retireable ? 'button-secondary' : ''}`, '退役');
+          button.type = 'button';
+          button.dataset.accountAction = 'retire';
+          button.dataset.accountUuid = uuid;
+          button.dataset.retireable = String(retireable);
+          button.disabled = !retireable || state.accountBusy || !state.csrfToken;
+          action.append(button);
+
+          row.append(identity, meta, action);
+          list.append(row);
+        });
+      }
+
+      function setAccountLoading(isLoading, text = '正在读取') {
+        setSectionStatus($('#accountStatus'), text, isLoading ? 'warning' : 'neutral');
+      }
+
+      async function loadAccountStatus() {
+        setAccountLoading(true, '正在读取');
+        try {
+          const response = await apiRequest('/api/claude-account/status');
+          const payload = isObject(response) && isObject(response.status)
+            ? response.status
+            : unwrapPayload(response);
+          state.accountData = payload;
+          const data = isObject(payload) ? payload : {};
+          const current = data.current_account_uuid || (Array.isArray(data.current_account_uuids) ? data.current_account_uuids[0] : '');
+          $('#currentAccountUuid').replaceChildren(createElement('code', '', current || '未识别'));
+          $('#claudeProcessState').textContent = data.claude_running ? '正在运行' : '未检测到运行中的客户端';
+          renderAccountList(data);
+          setAccountLoading(false, '状态已更新');
+        } catch (error) {
+          state.accountData = null;
+          $('#currentAccountUuid').replaceChildren(createElement('code', '', '读取失败'));
+          $('#accountCount').textContent = '读取失败';
+          $('#claudeProcessState').textContent = '未知';
+          clearElement($('#accountList'));
+          $('#accountList').append(createElement('div', 'empty-state', error.message));
+          $('#staleAccountCount').textContent = '不可用';
+          setAccountLoading(false, '读取失败');
+          setSectionStatus($('#accountStatus'), '读取失败', 'error');
+        }
+        updateActionStates();
+      }
+
+      function accountFacts(result) {
+        return [
+          ['账号 UUID', result.account_uuid],
+          ['移除目录', result.directories_removed],
+          ['移除大小', result.bytes_removed === undefined ? undefined : formatBytes(result.bytes_removed)],
+          ['残留复查', result.residuals ? JSON.stringify(result.residuals) : undefined],
+          ['登录层已移除', result.login_paths_removed],
+          ['凭据已移除', result.credential_targets_removed]
+        ];
+      }
+
+      async function retireAccount(button) {
+        if (state.accountBusy || button.dataset.retireable !== 'true') {
+          return;
+        }
+        const accountUuid = button.dataset.accountUuid;
+        if (!window.confirm(`确认退役旧账号 ${accountUuid}？\n\n当前账号和登录层不会由此操作处理。`)) {
+          return;
+        }
+        const normalizedUuid = accountUuid.toLowerCase();
+        state.accountBusy = true;
+        button.textContent = '处理中…';
+        updateActionStates();
+        try {
+          const payload = await apiRequest('/api/claude-account/retire', {
+            method: 'POST',
+            write: true,
+            body: {
+              account_uuid: normalizedUuid,
+              confirmation: `RETIRE_ACCOUNT:${normalizedUuid}`
+            }
+          });
+          renderResult($('#accountActionResult'), payload, {
+            title: '旧账号退役结果',
+            summary: '已收到旧账号退役接口返回结果。',
+            facts: accountFacts
+          });
+          setToast('旧账号退役接口已返回结果。', resultTone(resultStatus(unwrapPayload(payload))));
+          await loadAccountStatus();
+        } catch (error) {
+          renderResult($('#accountActionResult'), { status: 'error', error: error.message }, {
+            title: '旧账号退役结果',
+            summary: '旧账号退役请求未完成，请查看错误信息。'
+          });
+          setToast(error.message, 'error');
+        } finally {
+          state.accountBusy = false;
+          updateActionStates();
+        }
+      }
+
+      async function resetAllAccounts() {
+        if (state.accountBusy) {
+          return;
+        }
+        if (!$('#loggedOutAck').checked || $('#resetAccountConfirm').value.trim() !== 'RESET_ALL_CLAUDE_ACCOUNTS') {
+          return;
+        }
+        if (!window.confirm('确认清空全部 Claude 账号与登录层？\n\n请确保所有账号已经退出，客户端已经关闭。')) {
+          return;
+        }
+        state.accountBusy = true;
+        updateActionStates();
+        $('#resetAccountButton').textContent = '处理中…';
+        try {
+          const payload = await apiRequest('/api/claude-account/reset-all', {
+            method: 'POST',
+            write: true,
+            body: {
+              confirmation: 'RESET_ALL_CLAUDE_ACCOUNTS',
+              logged_out_acknowledged: true
+            }
+          });
+          renderResult($('#accountActionResult'), payload, {
+            title: '账号与登录层全清结果',
+            summary: '已收到全清接口返回结果。',
+            facts: accountFacts
+          });
+          setToast('全清接口已返回结果。', resultTone(resultStatus(unwrapPayload(payload))));
+          await loadAccountStatus();
+        } catch (error) {
+          renderResult($('#accountActionResult'), { status: 'error', error: error.message }, {
+            title: '账号与登录层全清结果',
+            summary: '全清请求未完成，请查看错误信息。'
+          });
+          setToast(error.message, 'error');
+        } finally {
+          state.accountBusy = false;
+          $('#resetAccountButton').textContent = '清空账号与登录层';
+          updateActionStates();
+        }
+      }
+
+      function isValidMachineId(value) {
+        const compact = value.replace(/-/g, '');
+        const validShape = /^[0-9a-fA-F]{32}$/.test(value) || /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);
+        return validShape && compact.toLowerCase() !== '0'.repeat(32);
+      }
+
+      function machineIdFromPayload(payload) {
+        const data = unwrapPayload(payload);
+        if (typeof data === 'string') {
+          return data.trim();
+        }
+        if (isObject(data)) {
+          for (const key of ['display_id', 'machine_id', 'machineId', 'current_machine_id', 'current']) {
+            if (typeof data[key] === 'string') {
+              return data[key].trim();
+            }
+          }
+        }
+        return '';
+      }
+
+      function renderMachineInputState() {
+        const input = $('#machineIdInput');
+        const feedback = $('#machineIdFeedback');
+        const value = input.value.trim();
+        input.classList.remove('is-invalid', 'is-valid');
+        feedback.classList.remove('is-invalid', 'is-valid');
+        if (!value) {
+          feedback.textContent = '等待输入。';
+        } else if (isValidMachineId(value)) {
+          input.classList.add('is-valid');
+          feedback.classList.add('is-valid');
+          feedback.textContent = '格式有效，可以写入。';
+        } else {
+          input.classList.add('is-invalid');
+          feedback.classList.add('is-invalid');
+          feedback.textContent = /^0{32}$|^(?:0{8}-0{4}-0{4}-0{4}-0{12})$/i.test(value)
+            ? '格式无效：Machine ID 不能全部为 0。'
+            : '格式无效：请输入 32 位十六进制或标准 GUID。';
+        }
+        updateActionStates();
+      }
+
+      async function loadMachineId() {
+        setSectionStatus($('#machineStatus'), '正在读取', 'warning');
+        try {
+          const payload = await apiRequest('/api/machine-id');
+          const value = machineIdFromPayload(payload);
+          state.machineId = value;
+          $('#machineIdCurrent').textContent = value || '未提供';
+          setSectionStatus($('#machineStatus'), value ? '状态已更新' : '未提供当前值', value ? 'success' : 'warning');
+        } catch (error) {
+          state.machineId = '';
+          $('#machineIdCurrent').textContent = '读取失败';
+          setSectionStatus($('#machineStatus'), '读取失败', 'error');
+          setToast(error.message, 'error');
+        }
+        updateActionStates();
+      }
+
+      async function writeMachineId(event) {
+        event.preventDefault();
+        const input = $('#machineIdInput');
+        const value = input.value.trim();
+        if (!isValidMachineId(value) || state.machineBusy) {
+          renderMachineInputState();
+          return;
+        }
+        state.machineBusy = true;
+        updateActionStates();
+        $('#writeMachineIdButton').textContent = '写入中…';
+        setSectionStatus($('#machineStatus'), '正在写入', 'warning');
+        try {
+          const payload = await apiRequest('/api/machine-id', {
+            method: 'POST',
+            write: true,
+            body: {
+              machine_id: value,
+              confirmation: 'CHANGE_MACHINE_ID'
+            }
+          });
+          const returnedValue = machineIdFromPayload(payload) || value;
+          state.machineId = returnedValue;
+          state.machineIdWritten = true;
+          $('#machineIdCurrent').textContent = returnedValue;
+          renderResult($('#machineActionResult'), payload, {
+            title: 'Machine ID 写入结果',
+            summary: 'Machine ID 写入请求已返回。',
+            facts: (result) => [['Machine ID', result.display_id || result.machine_id || result.machineId || returnedValue]]
+          });
+          setSectionStatus($('#machineStatus'), '写入完成', 'success');
+          setToast('Machine ID 写入接口已返回结果。', 'success');
+          $('#rebootConfirm').checked = false;
+        } catch (error) {
+          renderResult($('#machineActionResult'), { status: 'error', error: error.message }, {
+            title: 'Machine ID 写入结果',
+            summary: 'Machine ID 写入请求未完成，请查看错误信息。'
+          });
+          setSectionStatus($('#machineStatus'), '写入失败', 'error');
+          setToast(error.message, 'error');
+        } finally {
+          state.machineBusy = false;
+          $('#writeMachineIdButton').textContent = '写入 Machine ID';
+          updateActionStates();
+        }
+      }
+
+      async function rebootLocal() {
+        if (state.machineBusy || !$('#rebootConfirm').checked || !state.machineId) {
+          return;
+        }
+        if (!window.confirm('确认现在重启本机？未保存的其他工作可能会受影响。')) {
+          return;
+        }
+        state.machineBusy = true;
+        updateActionStates();
+        $('#rebootButton').textContent = '重启请求中…';
+        setSectionStatus($('#machineStatus'), '正在请求重启', 'warning');
+        try {
+          const payload = await apiRequest('/api/reboot', {
+            method: 'POST',
+            write: true,
+            body: {
+              confirmation: 'REBOOT_LOCAL'
+            }
+          });
+          renderResult($('#machineActionResult'), payload, {
+            title: '本机重启结果',
+            summary: '重启接口已返回结果。连接可能会随本机重启而中断。'
+          });
+          setSectionStatus($('#machineStatus'), '已发起重启', 'warning');
+          setToast('已发起本机重启请求。', 'warning');
+        } catch (error) {
+          renderResult($('#machineActionResult'), { status: 'error', error: error.message }, {
+            title: '本机重启结果',
+            summary: '重启请求未完成，请查看错误信息。'
+          });
+          setSectionStatus($('#machineStatus'), '重启失败', 'error');
+          setToast(error.message, 'error');
+        } finally {
+          state.machineBusy = false;
+          $('#rebootButton').textContent = '重启本机';
+          updateActionStates();
+        }
+      }
+
+      function selectTab(tabName, moveFocus = false) {
+        $$('.tab-button').forEach((button) => {
+          const active = button.dataset.tab === tabName;
+          button.setAttribute('aria-selected', String(active));
+          button.tabIndex = active ? 0 : -1;
+        });
+        $$('[data-panel]').forEach((panel) => {
+          panel.hidden = panel.dataset.panel !== tabName;
+        });
+        if (moveFocus) {
+          $(`[data-tab="${tabName}"]`).focus();
+        }
+      }
+
+      function bindEvents() {
+        $$('.tab-button').forEach((button, index, buttons) => {
+          button.addEventListener('click', () => selectTab(button.dataset.tab));
+          button.addEventListener('keydown', (event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+              return;
+            }
+            event.preventDefault();
+            let nextIndex = index;
+            if (event.key === 'ArrowLeft') {
+              nextIndex = (index - 1 + buttons.length) % buttons.length;
+            } else if (event.key === 'ArrowRight') {
+              nextIndex = (index + 1) % buttons.length;
+            } else if (event.key === 'Home') {
+              nextIndex = 0;
+            } else if (event.key === 'End') {
+              nextIndex = buttons.length - 1;
+            }
+            selectTab(buttons[nextIndex].dataset.tab, true);
+          });
+        });
+
+        $('#cleanupConfirm').addEventListener('change', updateActionStates);
+        $$('input[name="cleanup-mode"]').forEach((input) => input.addEventListener('change', updateActionStates));
+        $('#runCleanupButton').addEventListener('click', runCleanup);
+
+        $('#accountList').addEventListener('click', (event) => {
+          const button = event.target.closest('[data-account-action="retire"]');
+          if (button) {
+            retireAccount(button);
+          }
+        });
+        $('#resetAccountForm').addEventListener('submit', (event) => {
+          event.preventDefault();
+          resetAllAccounts();
+        });
+        $('#loggedOutAck').addEventListener('change', updateActionStates);
+        $('#resetAccountConfirm').addEventListener('input', (event) => {
+          const valid = event.target.value.trim() === 'RESET_ALL_CLAUDE_ACCOUNTS';
+          const feedback = $('#resetConfirmFeedback');
+          event.target.classList.toggle('is-valid', valid);
+          event.target.classList.toggle('is-invalid', event.target.value.length > 0 && !valid);
+          feedback.classList.toggle('is-valid', valid);
+          feedback.classList.toggle('is-invalid', event.target.value.length > 0 && !valid);
+          feedback.textContent = valid ? '确认文本正确。' : '请输入完整的确认文本。';
+          updateActionStates();
+        });
+
+        $('#machineIdInput').addEventListener('input', renderMachineInputState);
+        $('#machineIdForm').addEventListener('submit', writeMachineId);
+        $('#rebootConfirm').addEventListener('change', updateActionStates);
+        $('#rebootButton').addEventListener('click', rebootLocal);
+      }
+
+      async function initialize() {
+        bindEvents();
+        selectTab('cleanup');
+        renderMachineInputState();
+        await Promise.allSettled([loadConfig(), loadAccountStatus(), loadMachineId()]);
+        updateActionStates();
+      }
+
+      initialize();
+    })();
+  </script>
+</body>
+</html>
