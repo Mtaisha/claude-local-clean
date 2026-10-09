@@ -87,6 +87,8 @@ class SafeFullCleanupTests(unittest.TestCase):
 
             with patch.object(clean, "get_home", return_value=home), patch.object(
                 clean.sys, "argv", ["clean_claude_tracking.py"]
+            ), patch(
+                "local_desktop_privacy._claude_process_running", return_value=False
             ), patch.dict(
                 os.environ,
                 {"APPDATA": str(appdata), "LOCALAPPDATA": str(local_appdata)},

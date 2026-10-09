@@ -195,6 +195,8 @@ class LocalDesktopPrivacyTests(unittest.TestCase):
             ), patch.object(privacy, "SUPPORTED_EMBEDDED_SIZE", 1), patch.object(
                 privacy, "embedded_payload_is_clean", return_value=False
             ), patch.object(
+                privacy, "_claude_process_running", return_value=False
+            ), patch.object(
                 privacy,
                 "_sha256",
                 side_effect=[privacy.SUPPORTED_EMBEDDED_ORIGINAL_SHA256, "unexpected"],
