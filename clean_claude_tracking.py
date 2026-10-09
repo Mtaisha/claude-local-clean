@@ -6,9 +6,11 @@ Claude Code 追踪数据清理脚本
 """
 import json
 import os
-import shutil
 import platform
+import shutil
+import stat
 import sys
+import tempfile
 from pathlib import Path
 
 DEVICE_LINK_KEYS = [
@@ -20,6 +22,10 @@ DEVICE_LINK_KEYS = [
     'firstStartTime',
     'claudeCodeFirstTokenDate',
 ]
+
+
+class CleanupSafetyError(RuntimeError):
+    """Raised when an allowlisted cleanup target is redirected through a link."""
 
 # 隐私加固：写入 ~/.claude/settings.json 的 env 变量。
 # 不同 Claude 版本可能只识别其中一部分；不识别的键会作为普通环境变量保留。
@@ -62,12 +68,35 @@ def get_claude_json():
 def get_claude_dir():
     return get_home() / ".claude"
 
+
+def _is_reparse(path):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return path.is_symlink() or bool(attributes & reparse_flag)
+
+
+def _require_plain_child(root, path):
+    if path.parent != root:
+        raise CleanupSafetyError(f"清理目标不在固定根目录内: {path}")
+    if _is_reparse(root) or _is_reparse(path):
+        raise CleanupSafetyError(f"清理目标是链接或重解析点，拒绝处理: {path}")
+
+
 def save_claude_json(path, data):
     """Atomically replace Claude's JSON file without creating a backup copy."""
-    temp_path = path.with_name(path.name + ".tmp-clean")
+    if _is_reparse(path):
+        raise CleanupSafetyError(f"配置文件是链接或重解析点，拒绝处理: {path}")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp-clean", dir=path.parent)
+    temp_path = Path(temp_name)
     try:
-        with open(temp_path, 'w', encoding='utf-8') as f:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(temp_path, path)
     finally:
         temp_path.unlink(missing_ok=True)
@@ -78,9 +107,13 @@ def clean_tracking_ids():
     if not claude_json.exists():
         print("✓ ~/.claude.json 不存在")
         return
+    if _is_reparse(claude_json):
+        raise CleanupSafetyError(f"配置文件是链接或重解析点，拒绝处理: {claude_json}")
 
     with open(claude_json, 'r', encoding='utf-8') as f:
         data = json.load(f)
+    if not isinstance(data, dict):
+        raise CleanupSafetyError("~/.claude.json 顶层不是对象，拒绝修改")
 
     removed = []
     for key in DEVICE_LINK_KEYS:
@@ -88,9 +121,8 @@ def clean_tracking_ids():
             removed.append(key)
             del data[key]
 
-    save_claude_json(claude_json, data)
-
     if removed:
+        save_claude_json(claude_json, data)
         print(f"✓ 已删除追踪 ID: {', '.join(removed)}")
     else:
         print("✓ 无追踪 ID 需要删除")
@@ -104,6 +136,9 @@ def clean_telemetry():
     files = [
         get_claude_dir() / "stats-cache.json",
     ]
+
+    for target in [*dirs, *files]:
+        _require_plain_child(get_claude_dir(), target)
 
     for d in dirs:
         if d.exists():
@@ -134,10 +169,6 @@ def get_desktop_audit_roots():
                 "local-agent-mode-sessions"
             )
 
-    preserve_parent = get_home() / "Documents" / "Claude"
-    for preserve in preserve_parent.glob("ClaudeDesktop-session-preserve-*"):
-        roots.append(preserve / "package-roaming" / "local-agent-mode-sessions")
-
     return roots
 
 def clean_desktop_audit_logs():
@@ -149,7 +180,11 @@ def clean_desktop_audit_logs():
     for root in get_desktop_audit_roots():
         if not root.is_dir():
             continue
+        if _is_reparse(root):
+            raise CleanupSafetyError(f"Desktop 审计根目录是链接或重解析点，拒绝处理: {root}")
         for audit_log in root.rglob("audit.jsonl"):
+            if _is_reparse(audit_log):
+                raise CleanupSafetyError(f"Desktop 审计记录是链接或重解析点，拒绝处理: {audit_log}")
             if not audit_log.is_file() and not audit_log.is_symlink():
                 continue
             identity = str(audit_log.resolve(strict=False)).casefold()
@@ -173,6 +208,9 @@ def clean_safe_cache():
         get_claude_dir() / "shell-snapshots",
         get_claude_dir() / "debug",
     ]
+
+    for item in items:
+        _require_plain_child(get_claude_dir(), item)
 
     for item in items:
         if item.exists():
@@ -253,7 +291,9 @@ def apply_local_desktop_privacy_hardening():
         elif result.get("status") == "current":
             print("✓ Desktop 托管隐私配置已是最新状态")
         else:
-            print(f"  Desktop 托管配置不可用，已跳过: {result.get('reason', 'unknown')}")
+            reason = result.get('reason', 'unknown')
+            print(f"⚠ Desktop 托管配置不可用，已跳过: {reason}")
+            return {"status": "partial", "reason": str(reason)}
         return {"status": "success"}
     except DesktopPrivacyError as exc:
         print(f"⚠ Desktop 托管隐私配置未通过校验，已跳过: {exc}")
@@ -268,6 +308,9 @@ def apply_privacy_hardening():
     - 顶层 autoUpdates 强制设为 false
     """
     settings_path = get_claude_dir() / 'settings.json'
+    if _is_reparse(settings_path.parent) or _is_reparse(settings_path):
+        print('⚠ settings.json 或其 Claude 根目录是链接/重解析点；不做任何修改')
+        return {"status": "partial", "reason": "settings.json path is redirected"}
     if settings_path.exists():
         try:
             with open(settings_path, 'r', encoding='utf-8') as f:
@@ -285,8 +328,12 @@ def apply_privacy_hardening():
         return {"status": "partial", "reason": "settings.json root is invalid"}
 
     env = settings.get('env')
-    if not isinstance(env, dict):
+    if env is None:
         env = {}
+    elif not isinstance(env, dict):
+        print('⚠ settings.json 的 env 不是对象；不做任何修改')
+        apply_local_desktop_privacy_hardening()
+        return {"status": "partial", "reason": "settings.json env is invalid"}
 
     changed = []
     for key, value in PRIVACY_ENV.items():
@@ -301,17 +348,19 @@ def apply_privacy_hardening():
         settings['autoUpdates'] = False
 
     if changed or top_level_changed or not settings_path.exists():
-        tmp = settings_path.with_name(settings_path.name + '.tmp-clean')
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f'.{settings_path.name}.', suffix='.tmp-clean', dir=settings_path.parent
+        )
+        tmp = Path(temp_name)
         try:
-            settings_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, 'w', encoding='utf-8') as f:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, settings_path)
         finally:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
+            tmp.unlink(missing_ok=True)
 
     if changed:
         print(f'✓ 已强制设置隐私加固 env: {", ".join(changed)}')

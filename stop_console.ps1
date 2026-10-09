@@ -8,6 +8,13 @@ $baseUrl = "http://127.0.0.1:$Port"
 
 try {
     $config = Invoke-RestMethod -Uri "$baseUrl/api/config" -TimeoutSec 2
+    if (
+        $config.app_id -ne "claude-local-clean" -or
+        [int]$config.api_version -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$config.csrf_token)
+    ) {
+        throw "The service on port $Port is not Claude Local Clean."
+    }
     $headers = @{ "X-Cleanup-Token" = $config.csrf_token }
     $body = @{ confirmation = "STOP_LOCAL_SERVER" } | ConvertTo-Json -Compress
     Invoke-RestMethod `

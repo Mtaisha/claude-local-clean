@@ -13,8 +13,12 @@ $ownsMutex = $false
 
 function Test-LocalConsole {
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -DisableKeepAlive -Uri "$baseUrl/api/config" -TimeoutSec 2
-        return $response.StatusCode -eq 200
+        $response = Invoke-RestMethod -DisableKeepAlive -Uri "$baseUrl/api/config" -TimeoutSec 2
+        return (
+            $response.app_id -eq "claude-local-clean" -and
+            [int]$response.api_version -eq 1 -and
+            -not [string]::IsNullOrWhiteSpace([string]$response.csrf_token)
+        )
     }
     catch {
         return $false

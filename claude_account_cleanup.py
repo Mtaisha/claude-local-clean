@@ -17,6 +17,12 @@ from typing import Callable
 UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
+CLAUDE_CREDENTIAL_TARGETS = frozenset(
+    {
+        "legacygeneric:target=anthropic api",
+        "legacygeneric:target=claude code",
+    }
+)
 ACCOUNT_MAP_KEYS = {
     "bypassPermissionsOptInByAccount",
     "bypassPermissionsGateByAccount",
@@ -229,8 +235,7 @@ def _require_owned_child(root: Path, child: Path) -> None:
 def _is_claude_credential_target(target: object) -> bool:
     if not isinstance(target, str):
         return False
-    lowered = target.casefold()
-    return "claude" in lowered or "anthropic" in lowered
+    return target.strip().casefold() in CLAUDE_CREDENTIAL_TARGETS
 
 
 def _default_credential_target_provider() -> list[str]:
@@ -741,8 +746,8 @@ def retire_stale_account(
     anchor_removed = 0
     anchor_uuid = anchor.get("account_uuid")
     if isinstance(anchor_uuid, str) and anchor_uuid.lower() == account_uuid:
-        anchor = {}
-        anchor_removed = 1
+        anchor_counts = _remove_top_level_account_login_fields(anchor)
+        anchor_removed = sum(anchor_counts.values())
 
     mutations = (
         (paths.config_path, config, config_removed),
@@ -840,6 +845,24 @@ def _remove_all_account_login_fields(value: object) -> dict[str, int]:
                 visit(child)
 
     visit(value)
+    return counts
+
+
+def _remove_top_level_account_login_fields(value: dict) -> dict[str, int]:
+    counts = {"account": 0, "organization": 0, "maps": 0, "login_metadata": 0}
+    for key in list(value):
+        if key in ACCOUNT_IDENTITY_KEYS:
+            del value[key]
+            counts["account"] += 1
+        elif key in ORGANIZATION_IDENTITY_KEYS:
+            del value[key]
+            counts["organization"] += 1
+        elif key in LOGIN_METADATA_KEYS or key.startswith("oauth:"):
+            del value[key]
+            counts["login_metadata"] += 1
+        elif key in ACCOUNT_MAP_KEYS:
+            del value[key]
+            counts["maps"] += 1
     return counts
 
 
@@ -1009,9 +1032,7 @@ def reset_all_accounts_and_login(
     anchor_counts = _remove_all_account_login_fields(anchor)
     for key in totals:
         totals[key] += anchor_counts[key]
-    anchor_changed = bool(anchor)
-    if anchor_changed:
-        anchor = {}
+    anchor_changed = any(anchor_counts.values())
 
     result: dict[str, object] = {
         "status": "partial",

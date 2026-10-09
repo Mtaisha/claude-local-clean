@@ -189,7 +189,10 @@ class ClaudeAccountCleanupTests(unittest.TestCase):
         self.assertIn(CURRENT, prefs["bypassPermissionsOptInByAccount"])
         self.assertEqual(desktop["mcpServers"], {"keep": {"command": "x"}})
         self.assertEqual(json.loads(self.paths.cowork_ops_path.read_text(encoding="utf-8")), {"keep": True})
-        self.assertEqual(json.loads(self.paths.primary_anchor.read_text(encoding="utf-8")), {})
+        self.assertEqual(
+            json.loads(self.paths.primary_anchor.read_text(encoding="utf-8")),
+            {"bound_at": "old"},
+        )
         self.assertEqual({path: path.read_bytes() for path in self.protected}, before)
 
     def test_malformed_json_fails_before_any_deletion(self) -> None:
@@ -301,7 +304,10 @@ class ClaudeAccountCleanupTests(unittest.TestCase):
         self.assertEqual(desktop["preferences"]["theme"], "keep")
         self.assertTrue(all(not value for key, value in desktop["preferences"].items() if key in cleanup.ACCOUNT_MAP_KEYS))
         self.assertEqual(json.loads(self.paths.cowork_ops_path.read_text(encoding="utf-8")), {"keep": True})
-        self.assertEqual(json.loads(self.paths.primary_anchor.read_text(encoding="utf-8")), {})
+        self.assertEqual(
+            json.loads(self.paths.primary_anchor.read_text(encoding="utf-8")),
+            {"bound_at": "old"},
+        )
         self.assertEqual(json.loads(self.paths.home_config_path.read_text(encoding="utf-8")), {"theme": "keep"})
         self.assertFalse((self.paths.home_root / ".credentials.json").exists())
         self.assertFalse((self.paths.msix_root / "Local Storage").exists())
@@ -409,6 +415,8 @@ class ClaudeAccountCleanupTests(unittest.TestCase):
         provider_targets = [
             "LegacyGeneric:target=Anthropic API",
             "LegacyGeneric:target=Claude Code",
+            "LegacyGeneric:target=my-claude-notes",
+            "LegacyGeneric:target=anthropic-unrelated",
             "LegacyGeneric:target=Microsoft Account",
             "LegacyGeneric:target=github.com",
         ]
@@ -436,6 +444,8 @@ class ClaudeAccountCleanupTests(unittest.TestCase):
         )
         self.assertNotIn("LegacyGeneric:target=Microsoft Account", deleted)
         self.assertNotIn("LegacyGeneric:target=github.com", deleted)
+        self.assertNotIn("LegacyGeneric:target=my-claude-notes", deleted)
+        self.assertNotIn("LegacyGeneric:target=anthropic-unrelated", deleted)
         self.assertEqual(result.get("status"), "completed")
 
     def test_reset_all_credential_deleter_failure_is_partial_and_retryable(self) -> None:

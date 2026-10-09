@@ -60,6 +60,18 @@ class SafeFullCleanupTests(unittest.TestCase):
             desktop_audit = appdata / "Claude" / "local-agent-mode-sessions" / "one" / "audit.jsonl"
             desktop_audit.parent.mkdir(parents=True, exist_ok=True)
             desktop_audit.write_text("remove", encoding="utf-8")
+            preserved_audit = (
+                home
+                / "Documents"
+                / "Claude"
+                / "ClaudeDesktop-session-preserve-test"
+                / "package-roaming"
+                / "local-agent-mode-sessions"
+                / "one"
+                / "audit.jsonl"
+            )
+            preserved_audit.parent.mkdir(parents=True, exist_ok=True)
+            preserved_audit.write_text("keep", encoding="utf-8")
             desktop_root = (
                 local_appdata
                 / "Packages"
@@ -91,6 +103,7 @@ class SafeFullCleanupTests(unittest.TestCase):
             for relative in ("telemetry", "statsig", "stats-cache.json", "paste-cache", "shell-snapshots", "debug"):
                 self.assertFalse((claude / relative).exists(), relative)
             self.assertFalse(desktop_audit.exists())
+            self.assertEqual(preserved_audit.read_text(encoding="utf-8"), "keep")
             self.assertFalse(desktop_residue.exists())
             self.assertEqual(exit_code, 0)
             self.assertIn("一键完整清理完成", output.getvalue())
@@ -141,6 +154,88 @@ class SafeFullCleanupTests(unittest.TestCase):
             self.assertEqual(settings["env"]["UNRELATED_VALUE"], "keep")
             self.assertIs(settings["autoUpdates"], False)
             self.assertEqual(settings["theme"], "keep")
+
+    def test_privacy_hardening_reports_partial_when_desktop_config_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.object(
+            clean, "get_home", return_value=Path(temp)
+        ), patch.object(clean.platform, "system", return_value="Windows"), patch(
+            "local_desktop_privacy.apply_desktop_managed_privacy",
+            return_value={
+                "status": "unavailable",
+                "changed": [],
+                "reason": "managed config is absent",
+            },
+        ), redirect_stdout(StringIO()):
+            result = clean.apply_privacy_hardening()
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["reason"], "managed config is absent")
+
+    def test_device_link_cleanup_does_not_rewrite_unchanged_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            config = home / ".claude.json"
+            original = b'{"theme":"keep"}\r\n'
+            config.write_bytes(original)
+
+            with patch.object(clean, "get_home", return_value=home), redirect_stdout(StringIO()):
+                clean.clean_tracking_ids()
+
+            self.assertEqual(config.read_bytes(), original)
+
+    def test_device_link_cleanup_refuses_non_object_config_without_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            config = home / ".claude.json"
+            original = b'["machineID"]\r\n'
+            config.write_bytes(original)
+
+            with patch.object(clean, "get_home", return_value=home), redirect_stdout(StringIO()):
+                with self.assertRaises(clean.CleanupSafetyError):
+                    clean.clean_tracking_ids()
+
+            self.assertEqual(config.read_bytes(), original)
+
+    def test_privacy_hardening_refuses_invalid_env_without_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            settings_path = home / ".claude" / "settings.json"
+            settings_path.parent.mkdir()
+            original = b'{"env":"broken","theme":"keep"}\r\n'
+            settings_path.write_bytes(original)
+
+            with patch.object(clean, "get_home", return_value=home), patch.object(
+                clean.platform, "system", return_value="Linux"
+            ), redirect_stdout(StringIO()):
+                result = clean.apply_privacy_hardening()
+
+            self.assertEqual(result["status"], "partial")
+            self.assertEqual(settings_path.read_bytes(), original)
+
+    def test_cleanup_refuses_redirected_allowlisted_target_before_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            claude = home / ".claude"
+            telemetry = claude / "telemetry"
+            statsig = claude / "statsig"
+            telemetry.mkdir(parents=True)
+            statsig.mkdir()
+            (telemetry / "event.json").write_text("keep", encoding="utf-8")
+            (statsig / "state.json").write_text("keep", encoding="utf-8")
+
+            real_is_reparse = clean._is_reparse
+
+            def redirected(path: Path) -> bool:
+                return path == statsig or real_is_reparse(path)
+
+            with patch.object(clean, "get_home", return_value=home), patch.object(
+                clean, "_is_reparse", side_effect=redirected
+            ):
+                with self.assertRaises(clean.CleanupSafetyError):
+                    clean.clean_telemetry()
+
+            self.assertTrue((telemetry / "event.json").exists())
+            self.assertTrue((statsig / "state.json").exists())
 
     def test_unknown_or_unbound_flags_cannot_fall_through_to_full_cleanup(self) -> None:
         for argv in (

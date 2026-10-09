@@ -42,6 +42,9 @@ SCRIPT_PATH = BASE_DIR / "clean_claude_tracking.py"
 PID_PATH = BASE_DIR / "server.pid"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8190
+APP_ID = "claude-local-clean"
+API_VERSION = 1
+INSTANCE_ID = secrets.token_urlsafe(18)
 CSRF_TOKEN = secrets.token_urlsafe(32)
 MACHINE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
@@ -75,6 +78,21 @@ CLEANUP_MODES = {
 RUN_LOCK = threading.Lock()
 MACHINE_ID_LOCK = threading.Lock()
 RUNNING = False
+
+
+def claim_mutation_slot() -> bool:
+    global RUNNING
+    with RUN_LOCK:
+        if RUNNING:
+            return False
+        RUNNING = True
+        return True
+
+
+def release_mutation_slot() -> None:
+    global RUNNING
+    with RUN_LOCK:
+        RUNNING = False
 
 
 def cleanup_status_from_exit_code(code: int) -> str:
@@ -126,6 +144,14 @@ def run_cleanup(mode: str) -> dict[str, object]:
             "steps": [],
             "output": "",
             "error": "清理超过 180 秒，已停止等待。",
+        }
+    except OSError as exc:
+        return {
+            "status": "failed",
+            "duration_ms": int((time.monotonic() - start) * 1000),
+            "steps": [],
+            "output": "",
+            "error": f"无法启动本机清理脚本：{exc}",
         }
 
     status = cleanup_status_from_exit_code(result.returncode)
@@ -345,6 +371,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "success": True,
+                    "app_id": APP_ID,
+                    "api_version": API_VERSION,
+                    "instance_id": INSTANCE_ID,
                     "csrf_token": CSRF_TOKEN,
                     "platform": platform.system(),
                     "cleanup_modes": list(CLEANUP_MODES.values()),
@@ -412,7 +441,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         )
 
     def _post_run(self) -> None:
-        global RUNNING
         try:
             body = self._read_body()
         except (ValueError, json.JSONDecodeError):
@@ -425,83 +453,111 @@ class RequestHandler(BaseHTTPRequestHandler):
         if body.get("confirmation") != "RUN_LOCAL_CLEANUP":
             self._send_json({"success": False, "error": "缺少本机清理确认"}, 400)
             return
-        with RUN_LOCK:
-            if RUNNING:
-                self._send_json({"success": False, "error": "已有清理任务正在运行"}, 409)
-                return
-            RUNNING = True
+        if not claim_mutation_slot():
+            self._send_json({"success": False, "error": "已有修改任务正在运行"}, 409)
+            return
         try:
             result = run_cleanup(str(mode))
+        except Exception:
+            self._send_json({"success": False, "error": "本机清理进程异常终止"}, 500)
+            return
         finally:
-            with RUN_LOCK:
-                RUNNING = False
+            release_mutation_slot()
         self._send_json({"success": result["status"] == "success", "result": result})
 
     def _post_account_retire(self) -> None:
         try:
             body = self._read_body()
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"success": False, "error": "JSON 请求无效"}, 400)
+            return
+        if not claim_mutation_slot():
+            self._send_json({"success": False, "error": "已有修改任务正在运行"}, 409)
+            return
+        try:
             result = retire_stale_account(
                 str(body.get("account_uuid", "")),
                 str(body.get("confirmation", "")),
             )
             status = collect_account_status()
         except ClaudeAccountPartialCleanupError as exc:
-            self._send_json(
-                {"success": False, "partial": True, "error": str(exc), "result": exc.result},
-                409,
-            )
+            self._send_account_partial(exc)
             return
         except ClaudeAccountCleanupError as exc:
             self._send_json({"success": False, "error": str(exc)}, 409)
             return
-        except (ValueError, json.JSONDecodeError):
-            self._send_json({"success": False, "error": "JSON 请求无效"}, 400)
-            return
         except Exception:
             self._send_json({"success": False, "error": "旧账号清理失败"}, 500)
             return
+        finally:
+            release_mutation_slot()
         self._send_json({"success": True, "result": result, "status": status})
 
     def _post_account_reset_all(self) -> None:
         try:
             body = self._read_body()
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"success": False, "error": "JSON 请求无效"}, 400)
+            return
+        if not claim_mutation_slot():
+            self._send_json({"success": False, "error": "已有修改任务正在运行"}, 409)
+            return
+        try:
             result = reset_all_accounts_and_login(
                 str(body.get("confirmation", "")),
                 body.get("logged_out_acknowledged") is True,
             )
             status = collect_account_status()
         except ClaudeAccountPartialCleanupError as exc:
-            self._send_json(
-                {"success": False, "partial": True, "error": str(exc), "result": exc.result},
-                409,
-            )
+            self._send_account_partial(exc)
             return
         except ClaudeAccountCleanupError as exc:
             self._send_json({"success": False, "error": str(exc)}, 409)
             return
-        except (ValueError, json.JSONDecodeError):
-            self._send_json({"success": False, "error": "JSON 请求无效"}, 400)
-            return
         except Exception:
             self._send_json({"success": False, "error": "全部账号与登录层清理失败"}, 500)
             return
+        finally:
+            release_mutation_slot()
         self._send_json({"success": True, "result": result, "status": status})
+
+    def _send_account_partial(self, exc: ClaudeAccountPartialCleanupError) -> None:
+        payload: dict[str, object] = {
+            "success": False,
+            "partial": True,
+            "error": str(exc),
+            "result": exc.result,
+        }
+        try:
+            payload["status"] = collect_account_status()
+        except Exception:
+            payload["status_refresh_failed"] = True
+        self._send_json(payload, 409)
 
     def _post_machine_id(self) -> None:
         try:
             body = self._read_body()
             if body.get("confirmation") != "CHANGE_MACHINE_ID":
                 raise ValueError("缺少 Machine ID 修改确认")
-            result = change_machine_id(body.get("machine_id"))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json({"success": False, "error": str(exc)}, 400)
             return
+        if not claim_mutation_slot():
+            self._send_json({"success": False, "error": "已有修改任务正在运行"}, 409)
+            return
+        try:
+            result = change_machine_id(body.get("machine_id"))
         except PermissionError as exc:
             self._send_json({"success": False, "error": str(exc)}, 403)
+            return
+        except ValueError as exc:
+            self._send_json({"success": False, "error": str(exc)}, 400)
             return
         except Exception as exc:
             self._send_json({"success": False, "error": str(exc)}, 500)
             return
+        finally:
+            release_mutation_slot()
         self._send_json(result)
 
     def _post_reboot(self) -> None:
@@ -509,13 +565,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             if body.get("confirmation") != "REBOOT_LOCAL":
                 raise ValueError("缺少本机重启确认")
-            result = request_reboot()
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json({"success": False, "error": str(exc)}, 400)
             return
+        if not claim_mutation_slot():
+            self._send_json({"success": False, "error": "已有修改任务正在运行"}, 409)
+            return
+        try:
+            result = request_reboot()
         except Exception as exc:
             self._send_json({"success": False, "error": str(exc)}, 500)
             return
+        finally:
+            release_mutation_slot()
         self._send_json(result)
 
     def _post_shutdown(self) -> None:
@@ -526,6 +588,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         if body.get("confirmation") != "STOP_LOCAL_SERVER":
             self._send_json({"success": False, "error": "缺少停止确认"}, 400)
+            return
+        with RUN_LOCK:
+            busy = RUNNING
+        if busy:
+            self._send_json({"success": False, "error": "修改任务运行期间不能停止服务"}, 409)
             return
         self._send_json({"success": True})
         threading.Thread(target=self.server.shutdown, daemon=True).start()

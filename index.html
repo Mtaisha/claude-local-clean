@@ -1399,11 +1399,15 @@
         running: '执行中'
       };
 
+      const CONFIG_POLL_INTERVAL_MS = 1000;
+
       const state = {
         csrfToken: '',
         configLoaded: false,
         availableModes: new Set(),
         cleanupBusy: false,
+        serverRunning: false,
+        configPollGeneration: 0,
         accountBusy: false,
         machineBusy: false,
         accountData: null,
@@ -1464,6 +1468,16 @@
       }
 
       function errorMessage(payload) {
+        if (isObject(payload)) {
+          for (const key of ['error', 'message', 'detail']) {
+            if (payload[key]) {
+              const text = displayValue(payload[key]);
+              if (text) {
+                return text;
+              }
+            }
+          }
+        }
         const candidate = unwrapPayload(payload);
         if (typeof candidate === 'string' && candidate.trim()) {
           return candidate.trim();
@@ -1475,6 +1489,21 @@
               if (text) {
                 return text;
               }
+            }
+          }
+        }
+        return '';
+      }
+
+      function topLevelErrorMessage(payload) {
+        if (!isObject(payload)) {
+          return '';
+        }
+        for (const key of ['error', 'message', 'detail']) {
+          if (payload[key]) {
+            const text = displayValue(payload[key]);
+            if (text) {
+              return text;
             }
           }
         }
@@ -1599,7 +1628,7 @@
           const input = $('input', row);
           const available = state.configLoaded && state.availableModes.has(mode);
           row.classList.toggle('is-unavailable', !available);
-          input.disabled = !available || state.cleanupBusy;
+          input.disabled = !available || state.cleanupBusy || state.serverRunning;
         });
 
         const selected = $('input[name="cleanup-mode"]:checked');
@@ -1616,6 +1645,7 @@
       }
 
       function updateActionStates() {
+        const mutationBusy = state.cleanupBusy || state.accountBusy || state.machineBusy || state.serverRunning;
         const selectedMode = $('input[name="cleanup-mode"]:checked');
         const cleanupConfirm = $('#cleanupConfirm');
         const canRunCleanup = Boolean(
@@ -1624,9 +1654,9 @@
           selectedMode &&
           !selectedMode.disabled &&
           cleanupConfirm.checked &&
-          !state.cleanupBusy
+          !mutationBusy
         );
-        cleanupConfirm.disabled = !state.configLoaded || state.cleanupBusy || !state.csrfToken;
+        cleanupConfirm.disabled = !state.configLoaded || mutationBusy || !state.csrfToken;
         $('#runCleanupButton').disabled = !canRunCleanup;
 
         const resetInput = $('#resetAccountConfirm');
@@ -1634,7 +1664,7 @@
           state.csrfToken &&
           $('#loggedOutAck').checked &&
           resetInput.value.trim() === 'RESET_ALL_CLAUDE_ACCOUNTS' &&
-          !state.accountBusy
+          !mutationBusy
         );
         $('#resetAccountButton').disabled = !resetReady;
 
@@ -1643,34 +1673,82 @@
           state.csrfToken &&
           machineInput.value.trim() &&
           isValidMachineId(machineInput.value.trim()) &&
-          !state.machineBusy
+          !mutationBusy
         );
         $('#writeMachineIdButton').disabled = !machineReady;
         const rebootReady = Boolean(
           state.csrfToken &&
           state.machineId &&
           $('#rebootConfirm').checked &&
-          !state.machineBusy
+          !mutationBusy
         );
         $('#rebootButton').disabled = !rebootReady;
 
         $$('[data-account-action]').forEach((button) => {
-          button.disabled = state.accountBusy || !state.csrfToken || button.dataset.retireable !== 'true';
+          button.disabled = mutationBusy || !state.csrfToken || button.dataset.retireable !== 'true';
         });
       }
 
+      function applyConfigPayload(payload) {
+        const data = isObject(payload) ? payload : {};
+        state.csrfToken = typeof data.csrf_token === 'string' ? data.csrf_token : '';
+        state.availableModes = normalizeModeSet(data.cleanup_modes);
+        state.serverRunning = Boolean(data.running);
+        state.configLoaded = true;
+        applyConfigToModes();
+      }
+
+      function scheduleConfigPoll(generation) {
+        if (generation !== state.configPollGeneration || !state.serverRunning) {
+          return;
+        }
+        window.setTimeout(() => {
+          void pollConfigOnce(generation);
+        }, CONFIG_POLL_INTERVAL_MS);
+      }
+
+      async function pollConfigOnce(generation) {
+        if (generation !== state.configPollGeneration || !state.serverRunning) {
+          return;
+        }
+        try {
+          const payload = unwrapPayload(await apiRequest('/api/config'));
+          if (generation !== state.configPollGeneration) {
+            return;
+          }
+          applyConfigPayload(payload);
+          if (state.csrfToken) {
+            setConnectionState('success', '接口已连接');
+          }
+        } catch (error) {
+          if (generation !== state.configPollGeneration) {
+            return;
+          }
+          setConnectionState('error', '接口状态读取失败');
+          setSectionStatus($('#cleanupRunState'), state.cleanupBusy ? '正在执行' : '运行状态读取失败', 'error');
+          updateActionStates();
+        }
+        if (generation !== state.configPollGeneration) {
+          return;
+        }
+        if (state.serverRunning) {
+          setSectionStatus($('#cleanupRunState'), state.cleanupBusy ? '正在执行' : '接口正在运行', 'warning');
+          scheduleConfigPoll(generation);
+        } else if (!state.cleanupBusy) {
+          setSectionStatus($('#cleanupRunState'), '接口已空闲', 'neutral');
+        }
+      }
+
       async function loadConfig() {
+        state.configPollGeneration += 1;
+        const generation = state.configPollGeneration;
         setConnectionState('busy', '正在读取配置');
         try {
           const payload = unwrapPayload(await apiRequest('/api/config'));
-          state.csrfToken = isObject(payload) && typeof payload.csrf_token === 'string' ? payload.csrf_token : '';
-          state.availableModes = normalizeModeSet(isObject(payload) ? payload.cleanup_modes : []);
-          state.configLoaded = true;
-          applyConfigToModes();
-          if (isObject(payload) && payload.running) {
-            state.cleanupBusy = true;
+          applyConfigPayload(payload);
+          if (state.serverRunning) {
             setSectionStatus($('#cleanupRunState'), '接口正在运行', 'warning');
-            applyConfigToModes();
+            scheduleConfigPoll(generation);
           }
           if (state.csrfToken) {
             setConnectionState('success', '接口已连接');
@@ -1682,6 +1760,7 @@
           state.configLoaded = false;
           state.csrfToken = '';
           state.availableModes = new Set();
+          state.serverRunning = false;
           applyConfigToModes();
           setConnectionState('error', '接口不可用');
           setSectionStatus($('#cleanupRunState'), '配置读取失败', 'error');
@@ -1806,9 +1885,14 @@
           if (output) {
             appendResultText(container, '输出', output);
           }
-          const error = result.error || result.stderr || result.failure;
-          if (error) {
-            appendResultText(container, '错误', error, 'result-error');
+          if (result.error) {
+            appendResultText(container, '错误', result.error, 'result-error');
+          }
+          if (result.stderr) {
+            appendResultText(container, '错误输出', result.stderr, 'result-error');
+          }
+          if (result.failure) {
+            appendResultText(container, '失败原因', result.failure, 'result-error');
           }
           appendFacts(container, options.facts ? options.facts(result) : []);
         } else if (result) {
@@ -1816,8 +1900,37 @@
         }
       }
 
+      function partialAccountResult(error) {
+        const payload = isObject(error) && isObject(error.payload) ? error.payload : null;
+        return payload && isObject(payload.result) ? payload.result : null;
+      }
+
+      function renderAccountError(container, error, options = {}) {
+        const payload = isObject(error) && isObject(error.payload) ? error.payload : null;
+        const partial = partialAccountResult(error);
+        const friendlyError = topLevelErrorMessage(payload);
+        if (!partial) {
+          const message = friendlyError || (error && error.message) || options.summary || '账号操作未完成。';
+          renderResult(container, { status: 'error', error: message }, {
+            ...options,
+            summary: message
+          });
+          return message;
+        }
+
+        renderResult(container, partial, {
+          ...options,
+          fallbackStatus: 'partial',
+          summary: friendlyError || options.summary || '账号操作已部分完成，请查看详细结果。'
+        });
+        if (friendlyError) {
+          appendResultText(container, '接口错误', friendlyError, 'result-error');
+        }
+        return friendlyError || error.message || options.summary || '账号操作已部分完成。';
+      }
+
       async function runCleanup() {
-        if (state.cleanupBusy) {
+        if (state.cleanupBusy || state.accountBusy || state.machineBusy || state.serverRunning) {
           return;
         }
         const selected = $('input[name="cleanup-mode"]:checked');
@@ -1965,7 +2078,7 @@
           button.dataset.accountAction = 'retire';
           button.dataset.accountUuid = uuid;
           button.dataset.retireable = String(retireable);
-          button.disabled = !retireable || state.accountBusy || !state.csrfToken;
+          button.disabled = !retireable || state.accountBusy || state.cleanupBusy || state.machineBusy || state.serverRunning || !state.csrfToken;
           action.append(button);
 
           row.append(identity, meta, action);
@@ -2006,18 +2119,30 @@
       }
 
       function accountFacts(result) {
+        const completedCount = result.completed_count
+          ?? result.completedCount
+          ?? result.completed_operations
+          ?? result.completed;
         return [
           ['账号 UUID', result.account_uuid],
+          ['失败阶段', result.failed_phase],
+          ['已完成计数', completedCount],
           ['移除目录', result.directories_removed],
+          ['配置字段已移除', result.config_fields_removed ?? result.account_fields_removed],
+          ['账号映射已移除', result.account_map_entries_removed],
+          ['组织关联已移除', result.organization_links_removed],
+          ['登录元数据已移除', result.login_metadata_removed],
+          ['Cowork 所有者已移除', result.cowork_owner_removed],
+          ['主锚点已移除', result.primary_anchor_removed],
+          ['登录路径已移除', result.login_paths_removed],
+          ['凭据目标已移除', result.credential_targets_removed],
           ['移除大小', result.bytes_removed === undefined ? undefined : formatBytes(result.bytes_removed)],
-          ['残留复查', result.residuals ? JSON.stringify(result.residuals) : undefined],
-          ['登录层已移除', result.login_paths_removed],
-          ['凭据已移除', result.credential_targets_removed]
+          ['残留复查', result.residuals]
         ];
       }
 
       async function retireAccount(button) {
-        if (state.accountBusy || button.dataset.retireable !== 'true') {
+        if (state.accountBusy || state.cleanupBusy || state.machineBusy || state.serverRunning || button.dataset.retireable !== 'true') {
           return;
         }
         const accountUuid = button.dataset.accountUuid;
@@ -2045,11 +2170,14 @@
           setToast('旧账号退役接口已返回结果。', resultTone(resultStatus(unwrapPayload(payload))));
           await loadAccountStatus();
         } catch (error) {
-          renderResult($('#accountActionResult'), { status: 'error', error: error.message }, {
+          const message = renderAccountError($('#accountActionResult'), error, {
             title: '旧账号退役结果',
-            summary: '旧账号退役请求未完成，请查看错误信息。'
+            summary: '旧账号退役请求未完成，请查看错误信息。',
+            facts: accountFacts
           });
-          setToast(error.message, 'error');
+          const partial = partialAccountResult(error);
+          setToast(message, partial ? resultTone(resultStatus(partial, 'partial')) : 'error');
+          await loadAccountStatus();
         } finally {
           state.accountBusy = false;
           updateActionStates();
@@ -2057,7 +2185,7 @@
       }
 
       async function resetAllAccounts() {
-        if (state.accountBusy) {
+        if (state.accountBusy || state.cleanupBusy || state.machineBusy || state.serverRunning) {
           return;
         }
         if (!$('#loggedOutAck').checked || $('#resetAccountConfirm').value.trim() !== 'RESET_ALL_CLAUDE_ACCOUNTS') {
@@ -2086,11 +2214,14 @@
           setToast('全清接口已返回结果。', resultTone(resultStatus(unwrapPayload(payload))));
           await loadAccountStatus();
         } catch (error) {
-          renderResult($('#accountActionResult'), { status: 'error', error: error.message }, {
+          const message = renderAccountError($('#accountActionResult'), error, {
             title: '账号与登录层全清结果',
-            summary: '全清请求未完成，请查看错误信息。'
+            summary: '全清请求未完成，请查看错误信息。',
+            facts: accountFacts
           });
-          setToast(error.message, 'error');
+          const partial = partialAccountResult(error);
+          setToast(message, partial ? resultTone(resultStatus(partial, 'partial')) : 'error');
+          await loadAccountStatus();
         } finally {
           state.accountBusy = false;
           $('#resetAccountButton').textContent = '清空账号与登录层';

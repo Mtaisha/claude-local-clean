@@ -53,6 +53,33 @@ class LocalDesktopPrivacyTests(unittest.TestCase):
             self.assertFalse((library / "_meta.json.bak").exists())
             self.assertEqual((library / "_meta.json").read_text(), "keep")
 
+    def test_residue_cleanup_refuses_reparse_before_any_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            appdata = root / "Roaming"
+            local_appdata = root / "Local"
+            desktop_root = appdata / "Claude"
+            ant_did = desktop_root / "ant-did"
+            sentry = desktop_root / "sentry"
+            ant_did.mkdir(parents=True)
+            sentry.mkdir()
+            (ant_did / "keep").write_text("keep", encoding="utf-8")
+            (sentry / "keep").write_text("keep", encoding="utf-8")
+
+            real_is_reparse = privacy._is_reparse
+
+            def redirected(path: Path) -> bool:
+                return path == sentry or real_is_reparse(path)
+
+            with patch.object(privacy, "_is_reparse", side_effect=redirected):
+                with self.assertRaises(privacy.DesktopPrivacyError):
+                    privacy.clean_desktop_privacy_residue(
+                        appdata=appdata, local_appdata=local_appdata
+                    )
+
+            self.assertTrue((ant_did / "keep").exists())
+            self.assertTrue((sentry / "keep").exists())
+
     def test_managed_privacy_merge_preserves_other_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             local_appdata = Path(temp)

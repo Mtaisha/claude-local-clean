@@ -13,7 +13,9 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -76,6 +78,30 @@ class DesktopPrivacyError(RuntimeError):
     """Raised when a destructive Desktop operation cannot be verified."""
 
 
+def _is_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return path.is_symlink() or bool(attributes & reparse_flag)
+
+
+def _require_no_reparse_chain(path: Path, base: Path) -> None:
+    try:
+        relative = path.relative_to(base)
+    except ValueError as exc:
+        raise DesktopPrivacyError(f"Desktop path escaped its fixed root: {path}") from exc
+    current = base
+    if _is_reparse(current):
+        raise DesktopPrivacyError(f"Desktop path uses a link or reparse point: {current}")
+    for part in relative.parts:
+        current = current / part
+        if _is_reparse(current):
+            raise DesktopPrivacyError(f"Desktop path uses a link or reparse point: {current}")
+
+
 def _environment_path(name: str) -> Path | None:
     value = os.environ.get(name)
     return Path(value) if value else None
@@ -93,6 +119,8 @@ def _path_size(path: Path) -> int:
 def _remove_exact_path(path: Path) -> tuple[int, int]:
     if not path.exists() and not path.is_symlink():
         return 0, 0
+    if _is_reparse(path):
+        raise DesktopPrivacyError(f"Desktop residue is a link or reparse point: {path}")
     size = _path_size(path)
     if path.is_symlink() or path.is_file():
         path.unlink()
@@ -139,21 +167,33 @@ def clean_desktop_privacy_residue(
 
     removed: list[str] = []
     removed_bytes = 0
-    for root in desktop_roaming_roots(appdata=appdata, local_appdata=local_appdata):
+    appdata_root = appdata or _environment_path("APPDATA")
+    local_appdata_root = local_appdata or _environment_path("LOCALAPPDATA")
+    roots = desktop_roaming_roots(appdata=appdata, local_appdata=local_appdata)
+    candidates: list[tuple[Path, Path]] = []
+    for root in roots:
+        if appdata_root is not None and root == appdata_root / "Claude":
+            base = appdata_root
+        elif local_appdata_root is not None:
+            base = local_appdata_root
+        else:
+            raise DesktopPrivacyError(f"Desktop root has no trusted base: {root}")
         for name in DESKTOP_RESIDUE_NAMES:
             candidate = root / name
+            _require_no_reparse_chain(candidate, base)
+            candidates.append((candidate, base))
+
+    local_appdata = local_appdata_root
+    if local_appdata is not None:
+        meta_backup = local_appdata / "Claude-3p" / "configLibrary" / "_meta.json.bak"
+        _require_no_reparse_chain(meta_backup, local_appdata)
+        candidates.append((meta_backup, local_appdata))
+
+    for candidate, _base in candidates:
             count, size = _remove_exact_path(candidate)
             if count:
                 removed.append(str(candidate))
                 removed_bytes += size
-
-    local_appdata = local_appdata or _environment_path("LOCALAPPDATA")
-    if local_appdata is not None:
-        meta_backup = local_appdata / "Claude-3p" / "configLibrary" / "_meta.json.bak"
-        count, size = _remove_exact_path(meta_backup)
-        if count:
-            removed.append(str(meta_backup))
-            removed_bytes += size
 
     return {
         "status": "updated" if removed else "current",
@@ -164,9 +204,12 @@ def clean_desktop_privacy_residue(
 
 
 def _write_json_atomic(path: Path, value: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp-clean")
+    if _is_reparse(path):
+        raise DesktopPrivacyError(f"Managed config is a link or reparse point: {path}")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp-clean", dir=path.parent)
+    tmp = Path(temp_name)
     try:
-        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(value, handle, indent=2, ensure_ascii=False)
             handle.write("\n")
             handle.flush()
@@ -186,6 +229,7 @@ def apply_desktop_managed_privacy(
         return {"status": "unavailable", "changed": [], "reason": "LOCALAPPDATA is absent"}
     library = local_appdata / "Claude-3p" / "configLibrary"
     meta_path = library / "_meta.json"
+    _require_no_reparse_chain(meta_path, local_appdata)
     if not meta_path.is_file():
         return {"status": "unavailable", "changed": [], "reason": "managed config is absent"}
 
@@ -205,6 +249,7 @@ def apply_desktop_managed_privacy(
         raise DesktopPrivacyError("Managed config path escaped configLibrary")
     if not config_path.is_file():
         return {"status": "unavailable", "changed": [], "reason": "applied config is absent"}
+    _require_no_reparse_chain(config_path, local_appdata)
 
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -367,9 +412,12 @@ def _claude_process_running() -> bool:
 
 
 def _write_binary_atomic(path: Path, payload: bytes) -> None:
-    tmp = path.with_name(path.name + ".tmp-clean")
+    if _is_reparse(path):
+        raise DesktopPrivacyError(f"Embedded Claude Code is a link or reparse point: {path}")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp-clean", dir=path.parent)
+    tmp = Path(temp_name)
     try:
-        with tmp.open("wb") as handle:
+        with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
@@ -413,10 +461,14 @@ def harden_current_embedded_claude_code(
 ) -> dict[str, object]:
     """Patch only the exact supported embedded release; never guess on drift."""
 
+    local_appdata = local_appdata or _environment_path("LOCALAPPDATA")
     candidate = latest_embedded_binary(local_appdata=local_appdata)
     if candidate is None:
         return {"status": "unavailable", "reason": "embedded Claude Code was not found"}
     version, path = candidate
+    if local_appdata is None:
+        raise DesktopPrivacyError("LOCALAPPDATA is absent")
+    _require_no_reparse_chain(path, local_appdata)
     if version != SUPPORTED_EMBEDDED_VERSION:
         return {"status": "unsupported", "version": version, "reason": "content review required"}
 
